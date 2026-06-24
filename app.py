@@ -13,7 +13,7 @@ def run_document_chatbot(file_path):
     with open(file_path, 'r', encoding='utf-8') as f:
         doc_context = f.read()
 
-    # 2. Initialize GPU-bound local model (Optimized for your 4GB RTX 3050)
+    # 2. Initialize local model via Ollama
     llm = ChatOllama(
         model="qwen2.5:3b",
         temperature=0.3, # Slightly higher than 0 for creative follow-up suggestions

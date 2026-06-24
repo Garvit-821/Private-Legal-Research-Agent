@@ -14,7 +14,7 @@ from langchain_ollama import ChatOllama
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
 
-app = FastAPI(title="Nexus Document Analytics API")
+app = FastAPI(title="Local-Cortex API")
 
 # Enable CORS for easy local developments
 app.add_middleware(
@@ -162,14 +162,42 @@ class ChatRequestSchema(BaseModel):
     history: List[ChatMessageSchema]
 
 
+def extract_text_from_bytes(filename: str, contents: bytes) -> str:
+    ext = os.path.splitext(filename.lower())[1]
+    if ext == '.txt':
+        return contents.decode("utf-8", errors="replace")
+    elif ext in ('.md', '.markdown'):
+        return contents.decode("utf-8", errors="replace")
+    elif ext == '.docx':
+        import io
+        import docx
+        doc = docx.Document(io.BytesIO(contents))
+        paragraphs = [p.text for p in doc.paragraphs]
+        return "\n".join(paragraphs)
+    elif ext == '.pdf':
+        import io
+        from pypdf import PdfReader
+        reader = PdfReader(io.BytesIO(contents))
+        text_parts = []
+        for page in reader.pages:
+            page_text = page.extract_text()
+            if page_text:
+                text_parts.append(page_text)
+        return "\n".join(text_parts)
+    else:
+        raise ValueError(f"Unsupported file format: {ext}")
+
+
 @app.post("/api/upload")
 async def upload_document(file: UploadFile = File(...)):
-    if not file.filename.endswith('.txt'):
-        raise HTTPException(status_code=400, detail="Only plain text (.txt) files are supported.")
+    filename_lower = file.filename.lower()
+    allowed_extensions = ('.txt', '.pdf', '.docx', '.md', '.markdown')
+    if not filename_lower.endswith(allowed_extensions):
+        raise HTTPException(status_code=400, detail="Unsupported file format. Please upload .pdf, .docx, .md, or .txt files.")
         
     try:
         contents = await file.read()
-        text_content = contents.decode("utf-8")
+        text_content = extract_text_from_bytes(file.filename, contents)
         
         # Ingest state
         doc_state.filename = file.filename

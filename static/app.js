@@ -1,99 +1,240 @@
 // ==========================================================================
-// NEXUS DEEP DOCUMENT ANALYTICS - APPLICATION LOGIC
+// LOCAL-CORTEX — OPEN-SOURCE LOCAL INTELLIGENCE ENGINE
 // ==========================================================================
 
 document.addEventListener('DOMContentLoaded', () => {
-    // STATE MANAGEMENT
     const state = {
         filename: null,
         metrics: { chars: 0, words: 0, lines: 0, chunks: 0 },
         documentLines: [],
         chatHistory: [],
-        isThinking: false
+        isThinking: false,
+        isStreaming: false
     };
 
-    // DOM ELEMENTS
+    // DOM
     const uploadModal = document.getElementById('uploadModal');
     const dropzone = document.getElementById('dropzone');
     const fileInput = document.getElementById('fileInput');
     const btnSelectFile = document.getElementById('btnSelectFile');
+    const btnOpenUpload = document.getElementById('btnOpenUpload');
+    const btnPlaceholderUpload = document.getElementById('btnPlaceholderUpload');
     const uploadProgressContainer = document.getElementById('uploadProgressContainer');
     const uploadProgressBar = document.getElementById('uploadProgressBar');
     const uploadProgressStatus = document.getElementById('uploadProgressStatus');
-    
-    const telemetryBar = document.getElementById('telemetryBar');
+    const uploadProgressPercent = document.getElementById('uploadProgressPercent');
+    const loaderTitle = document.getElementById('loaderTitle');
+
+    const valDocName = document.getElementById('valDocName');
+    const valDocStatus = document.getElementById('valDocStatus');
     const valLines = document.getElementById('valLines');
     const valWords = document.getElementById('valWords');
-    const valMem = document.getElementById('valMem');
-    const valMemDelta = document.getElementById('valMemDelta');
-    const metricInference = document.getElementById('metricInference');
-    
+    const valSession = document.getElementById('valSession');
+    const valSessionDelta = document.getElementById('valSessionDelta');
+    const metricSession = document.getElementById('metricSession');
+
     const activeDocName = document.getElementById('activeDocName');
+    const docScanIndicator = document.getElementById('docScanIndicator');
     const documentViewport = document.getElementById('documentViewport');
     const docSearch = document.getElementById('docSearch');
     const btnScrollToTop = document.getElementById('btnScrollToTop');
-    
+
     const chatLog = document.getElementById('chatLog');
     const chatForm = document.getElementById('chatForm');
     const chatInput = document.getElementById('chatInput');
     const btnSubmitChat = document.getElementById('btnSubmitChat');
     const btnPurgeMemory = document.getElementById('btnPurgeMemory');
+    const agentStatus = document.getElementById('agentStatus');
     const toastContainer = document.getElementById('toastContainer');
 
-    // INITIALIZATION
+    const bgCanvas = document.getElementById('bgCanvas');
+    const loaderCanvas = document.getElementById('loaderCanvas');
+
+    initParticleBackground();
     checkActiveDocument();
 
     // ==========================================================================
-    // TOAST NOTIFICATION UTILITY
+    // AMBIENT PARTICLE BACKGROUND
+    // ==========================================================================
+    function initParticleBackground() {
+        const ctx = bgCanvas.getContext('2d');
+        let particles = [];
+        let animId = null;
+
+        function resize() {
+            bgCanvas.width = window.innerWidth;
+            bgCanvas.height = window.innerHeight;
+        }
+
+        function createParticles() {
+            const count = Math.min(80, Math.floor(window.innerWidth / 20));
+            particles = Array.from({ length: count }, () => ({
+                x: Math.random() * bgCanvas.width,
+                y: Math.random() * bgCanvas.height,
+                vx: (Math.random() - 0.5) * 0.3,
+                vy: (Math.random() - 0.5) * 0.3,
+                r: Math.random() * 1.5 + 0.5,
+                alpha: Math.random() * 0.4 + 0.1
+            }));
+        }
+
+        function draw() {
+            ctx.clearRect(0, 0, bgCanvas.width, bgCanvas.height);
+
+            particles.forEach((p, i) => {
+                p.x += p.vx;
+                p.y += p.vy;
+                if (p.x < 0) p.x = bgCanvas.width;
+                if (p.x > bgCanvas.width) p.x = 0;
+                if (p.y < 0) p.y = bgCanvas.height;
+                if (p.y > bgCanvas.height) p.y = 0;
+
+                ctx.beginPath();
+                ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+                ctx.fillStyle = `rgba(139, 92, 246, ${p.alpha})`;
+                ctx.fill();
+
+                for (let j = i + 1; j < particles.length; j++) {
+                    const q = particles[j];
+                    const dx = p.x - q.x;
+                    const dy = p.y - q.y;
+                    const dist = Math.sqrt(dx * dx + dy * dy);
+                    if (dist < 120) {
+                        ctx.beginPath();
+                        ctx.moveTo(p.x, p.y);
+                        ctx.lineTo(q.x, q.y);
+                        ctx.strokeStyle = `rgba(0, 245, 255, ${0.06 * (1 - dist / 120)})`;
+                        ctx.lineWidth = 0.5;
+                        ctx.stroke();
+                    }
+                }
+            });
+
+            animId = requestAnimationFrame(draw);
+        }
+
+        resize();
+        createParticles();
+        draw();
+
+        window.addEventListener('resize', () => {
+            resize();
+            createParticles();
+        });
+
+        return () => cancelAnimationFrame(animId);
+    }
+
+    // Loader particle burst
+    let loaderAnimId = null;
+    function startLoaderParticles() {
+        if (!loaderCanvas) return;
+        const ctx = loaderCanvas.getContext('2d');
+        const rect = loaderCanvas.parentElement.getBoundingClientRect();
+        loaderCanvas.width = rect.width;
+        loaderCanvas.height = rect.height;
+
+        const particles = Array.from({ length: 40 }, () => ({
+            x: loaderCanvas.width / 2,
+            y: loaderCanvas.height / 2,
+            vx: (Math.random() - 0.5) * 3,
+            vy: (Math.random() - 0.5) * 3,
+            life: 1,
+            color: Math.random() > 0.5 ? '0, 245, 255' : '139, 92, 246'
+        }));
+
+        function drawLoader() {
+            ctx.clearRect(0, 0, loaderCanvas.width, loaderCanvas.height);
+            let alive = false;
+
+            particles.forEach(p => {
+                if (p.life <= 0) return;
+                alive = true;
+                p.x += p.vx;
+                p.y += p.vy;
+                p.life -= 0.008;
+                p.vx *= 0.99;
+                p.vy *= 0.99;
+
+                ctx.beginPath();
+                ctx.arc(p.x, p.y, 2 * p.life, 0, Math.PI * 2);
+                ctx.fillStyle = `rgba(${p.color}, ${p.life * 0.6})`;
+                ctx.fill();
+            });
+
+            if (alive) {
+                loaderAnimId = requestAnimationFrame(drawLoader);
+            }
+        }
+
+        drawLoader();
+    }
+
+    function stopLoaderParticles() {
+        if (loaderAnimId) cancelAnimationFrame(loaderAnimId);
+        if (loaderCanvas) {
+            const ctx = loaderCanvas.getContext('2d');
+            ctx.clearRect(0, 0, loaderCanvas.width, loaderCanvas.height);
+        }
+    }
+
+    // ==========================================================================
+    // TOAST
     // ==========================================================================
     function showToast(message, type = 'info') {
         const toast = document.createElement('div');
         toast.className = `toast ${type}`;
-        
-        let icon = 'fa-circle-info';
-        if (type === 'success') icon = 'fa-circle-check';
-        if (type === 'warn') icon = 'fa-triangle-exclamation';
-        if (type === 'error') icon = 'fa-circle-xmark';
-        
-        toast.innerHTML = `
-            <i class="fa-solid ${icon}"></i>
-            <span>${message}</span>
-        `;
-        
+        const icons = { info: 'fa-circle-info', success: 'fa-circle-check', warn: 'fa-triangle-exclamation', error: 'fa-circle-xmark' };
+        toast.innerHTML = `<i class="fa-solid ${icons[type] || icons.info}"></i><span>${message}</span>`;
         toastContainer.appendChild(toast);
-        
-        // Auto remove toast
         setTimeout(() => {
-            toast.style.animation = 'toastEnter 0.3s cubic-bezier(0.18, 0.89, 0.32, 1.28) reverse forwards';
+            toast.style.animation = 'toastEnter 0.3s cubic-bezier(0.18, 0.89, 0.32, 1.2) reverse forwards';
             setTimeout(() => toast.remove(), 300);
         }, 4000);
     }
 
     // ==========================================================================
-    // CORE SYSTEM & DOCUMENT INGESTION
+    // AGENT STATUS
+    // ==========================================================================
+    function setAgentStatus(mode, text) {
+        agentStatus.className = 'agent-status' + (mode ? ` ${mode}` : '');
+        agentStatus.querySelector('.agent-status-text').textContent = text;
+    }
+
+    function setSessionState(value, delta, deltaClass = 'delta-pos') {
+        valSession.textContent = value;
+        valSessionDelta.textContent = delta;
+        valSessionDelta.className = `metric-delta ${deltaClass}`;
+        metricSession.classList.toggle('thinking', value === 'THINKING' || value === 'STREAMING');
+    }
+
+    function formatTime() {
+        return new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    }
+
+    // ==========================================================================
+    // DOCUMENT INGESTION
     // ==========================================================================
     async function checkActiveDocument() {
         try {
             const res = await fetch('/api/document');
             const data = await res.json();
-            
+
             if (data.filename) {
-                // Ingest active document from session
                 state.filename = data.filename;
                 state.metrics = data.metrics;
                 state.documentLines = data.content.split('\n');
-                
-                renderDocument(data.content);
+                renderDocument(data.content, true);
                 updateTelemetryUI();
                 closeIngestionModal();
                 enableChatSystem();
-                showToast(`Session restored: ${data.filename} is active`, 'success');
+                showToast(`Session restored: ${data.filename}`, 'success');
             } else {
                 openIngestionModal();
             }
         } catch (err) {
-            console.error("Initialization check failed:", err);
-            showToast("Failed to connect to local analytics engine.", "error");
+            console.error(err);
+            showToast('Failed to connect to Local-Cortex engine.', 'error');
         }
     }
 
@@ -109,36 +250,36 @@ document.addEventListener('DOMContentLoaded', () => {
     function enableChatSystem() {
         chatInput.disabled = false;
         btnSubmitChat.disabled = false;
-        chatInput.placeholder = "Query the analytics matrix...";
+        chatInput.placeholder = 'Ask anything about your document...';
+        setAgentStatus('', 'Ready');
     }
 
     function disableChatSystem() {
         chatInput.disabled = true;
         btnSubmitChat.disabled = true;
-        chatInput.placeholder = "Ingest a document first...";
+        chatInput.placeholder = 'Upload a document first...';
+        setAgentStatus('', 'Idle');
     }
 
-    // Drag-Drop Event Binding
-    ['dragenter', 'dragover'].forEach(eventName => {
-        dropzone.addEventListener(eventName, (e) => {
+    btnOpenUpload.addEventListener('click', openIngestionModal);
+    btnPlaceholderUpload.addEventListener('click', openIngestionModal);
+
+    ['dragenter', 'dragover'].forEach(evt => {
+        dropzone.addEventListener(evt, e => {
             e.preventDefault();
-            e.stopPropagation();
             dropzone.classList.add('dragover');
-        }, false);
+        });
     });
 
-    ['dragleave', 'drop'].forEach(eventName => {
-        dropzone.addEventListener(eventName, (e) => {
+    ['dragleave', 'drop'].forEach(evt => {
+        dropzone.addEventListener(evt, e => {
             e.preventDefault();
-            e.stopPropagation();
             dropzone.classList.remove('dragover');
-        }, false);
+        });
     });
 
-    dropzone.addEventListener('drop', (e) => {
-        const dt = e.dataTransfer;
-        const files = dt.files;
-        if (files.length) handleFileUpload(files[0]);
+    dropzone.addEventListener('drop', e => {
+        if (e.dataTransfer.files.length) handleFileUpload(e.dataTransfer.files[0]);
     });
 
     btnSelectFile.addEventListener('click', () => fileInput.click());
@@ -146,107 +287,150 @@ document.addEventListener('DOMContentLoaded', () => {
         if (fileInput.files.length) handleFileUpload(fileInput.files[0]);
     });
 
+    function setProgress(pct, status, title) {
+        uploadProgressBar.style.width = `${pct}%`;
+        uploadProgressPercent.textContent = `${Math.round(pct)}%`;
+        if (status) uploadProgressStatus.textContent = status;
+        if (title) loaderTitle.textContent = title;
+    }
+
     async function handleFileUpload(file) {
-        if (!file.name.endsWith('.txt')) {
-            showToast("Invalid format. Please upload a .txt file.", "warn");
+        const allowed = ['.txt', '.pdf', '.docx', '.md', '.markdown'];
+        if (!allowed.some(ext => file.name.toLowerCase().endsWith(ext))) {
+            showToast('Supported formats: .pdf, .docx, .md, .txt', 'warn');
             return;
         }
 
-        // Show Progress State
-        dropzone.style.display = 'none';
-        uploadProgressContainer.style.display = 'block';
-        uploadProgressBar.style.width = '20%';
-        uploadProgressStatus.textContent = `Streaming ${file.name}...`;
+        dropzone.hidden = true;
+        uploadProgressContainer.hidden = false;
+        startLoaderParticles();
+
+        const loaderLog = document.getElementById('loaderLog');
+        loaderLog.innerHTML = '';
+
+        function addLog(text, cls = '') {
+            const line = document.createElement('div');
+            line.className = `log-line${cls ? ' ' + cls : ''}`;
+            line.textContent = `> ${text}`;
+            loaderLog.appendChild(line);
+            loaderLog.scrollTop = loaderLog.scrollHeight;
+        }
+
+        const delay = ms => new Promise(r => setTimeout(r, ms));
+
+        setProgress(5, 'Establishing connection...', 'INITIALIZING CORTEX');
+        addLog('cortex.init()');
+        await delay(200);
+
+        setProgress(15, `Reading ${file.name}...`, 'READING DOCUMENT');
+        addLog(`open("${file.name}")`);
+        await delay(250);
+
+        addLog('streaming bytes to local engine...');
+        setProgress(30, 'Uploading to local engine...', 'UPLOADING');
+        await delay(200);
 
         const formData = new FormData();
         formData.append('file', file);
 
         try {
-            uploadProgressBar.style.width = '60%';
-            uploadProgressStatus.textContent = "Analyzing document structure...";
-            
-            const response = await fetch('/api/upload', {
-                method: 'POST',
-                body: formData
-            });
+            setProgress(45, 'Processing file...', 'PROCESSING');
+            addLog('extract_text()');
 
+            const response = await fetch('/api/upload', { method: 'POST', body: formData });
             if (!response.ok) {
-                const errorData = await response.json();
-                throw new Error(errorData.detail || "Upload failed");
+                const err = await response.json();
+                throw new Error(err.detail || 'Upload failed');
             }
 
             const data = await response.json();
-            
-            uploadProgressBar.style.width = '100%';
-            uploadProgressStatus.textContent = "Neural indexing finalized!";
-            
-            // Render the document content and update UI once upload is processed
-            setTimeout(async () => {
-                state.filename = data.filename;
-                state.metrics = data.metrics;
-                
-                const docRes = await fetch('/api/document');
-                const docData = await docRes.json();
-                state.documentLines = docData.content.split('\n');
-                
-                renderDocument(docData.content);
-                updateTelemetryUI();
-                
-                dropzone.style.display = 'block';
-                uploadProgressContainer.style.display = 'none';
-                
-                closeIngestionModal();
-                enableChatSystem();
-                showToast(`Successfully ingested: ${file.name}`, 'success');
-            }, 600);
-            
+
+            setProgress(65, 'Parsing document structure...', 'PARSING');
+            addLog(`parsed ${data.metrics?.lines || '?'} lines`);
+            await delay(300);
+
+            setProgress(80, 'Building search index...', 'INDEXING');
+            addLog('build_index() — TF-IDF weights');
+            await delay(350);
+
+            setProgress(95, 'Integrating into cortex memory...', 'INTEGRATING');
+            addLog('load_context()');
+            await delay(250);
+
+            setProgress(100, 'Ingestion complete!', 'COMPLETE');
+            addLog('cortex.ready = true', 'success');
+            addLog('status: ACTIVE', 'accent');
+            await delay(500);
+
+            state.filename = data.filename;
+            state.metrics = data.metrics;
+
+            const docRes = await fetch('/api/document');
+            const docData = await docRes.json();
+            state.documentLines = docData.content.split('\n');
+
+            stopLoaderParticles();
+            dropzone.hidden = false;
+            uploadProgressContainer.hidden = true;
+
+            closeIngestionModal();
+            await renderDocumentWithScan(docData.content);
+            updateTelemetryUI();
+            enableChatSystem();
+            showToast(`Document loaded: ${file.name}`, 'success');
+
         } catch (err) {
             console.error(err);
-            showToast(err.message || "Ingestion protocol failed", "error");
-            dropzone.style.display = 'block';
-            uploadProgressContainer.style.display = 'none';
+            showToast(err.message || 'Ingestion failed', 'error');
+            stopLoaderParticles();
+            dropzone.hidden = false;
+            uploadProgressContainer.hidden = true;
         }
     }
 
-    // Telemetry display updating
-    function updateTelemetryUI() {
-        valLines.textContent = `${state.metrics.lines} Lines`;
-        valWords.textContent = `${state.metrics.words} Words`;
-        
-        // Simulating RAM efficiency metrics compared to Streamlit re-run architectures
-        const sizeInKB = state.metrics.chars / 1024;
-        const memoryUsedMB = (2.2 + (sizeInKB * 0.0005)).toFixed(2);
-        valMem.textContent = `~${memoryUsedMB} MB`;
-        
-        // Streamlit uses ~10x more cache footprint
-        const savedMB = ((memoryUsedMB * 9.5)).toFixed(1);
-        valMemDelta.textContent = `-${savedMB} MB Saved`;
-        valMemDelta.className = "metric-delta delta-pos";
+    async function renderDocumentWithScan(content) {
+        docScanIndicator.hidden = false;
+        documentViewport.classList.add('scanning');
+        renderDocument(content, false);
+        await new Promise(r => setTimeout(r, Math.min(content.split('\n').length * 8, 2000)));
+        docScanIndicator.hidden = true;
+        documentViewport.classList.remove('scanning');
     }
 
-    // Render file into viewport line-by-line
-    function renderDocument(content) {
-        activeDocName.textContent = state.filename.toUpperCase();
+    function updateTelemetryUI() {
+        valLines.textContent = state.metrics.lines.toLocaleString();
+        valWords.textContent = state.metrics.words.toLocaleString();
+        valDocName.textContent = state.filename || '—';
+        valDocStatus.textContent = state.filename ? 'Loaded' : 'Awaiting upload';
+        valDocStatus.className = state.filename ? 'metric-delta delta-pos' : 'metric-delta';
+    }
+
+    function renderDocument(content, instant = false) {
+        activeDocName.textContent = (state.filename || 'NO DOCUMENT').toUpperCase();
         documentViewport.innerHTML = '';
-        
+
         const lines = content.split('\n');
         lines.forEach((lineText, idx) => {
-            const lineNum = idx + 1;
             const row = document.createElement('div');
             row.className = 'code-line-row';
-            row.setAttribute('data-line', lineNum);
-            
-            // Handle spaces and empty lines to look code-perfect
-            const formattedText = lineText === '' ? ' ' : lineText;
-            
+            row.setAttribute('data-line', idx + 1);
+
+            if (!instant) {
+                row.style.animationDelay = `${Math.min(idx * 12, 800)}ms`;
+                row.classList.add('revealed');
+            } else {
+                row.style.opacity = '1';
+                row.style.transform = 'none';
+            }
+
+            const formatted = lineText === '' ? ' ' : lineText;
             row.innerHTML = `
-                <span class="code-line-num">${lineNum}</span>
-                <span class="code-line-content">${escapeHTML(formattedText)}</span>
+                <span class="code-line-num">${idx + 1}</span>
+                <span class="code-line-content">${escapeHTML(formatted)}</span>
             `;
             documentViewport.appendChild(row);
         });
-        
-        // Clear search inputs
+
         docSearch.value = '';
     }
 
@@ -259,98 +443,69 @@ document.addEventListener('DOMContentLoaded', () => {
             .replace(/'/g, '&#039;');
     }
 
-    // Scroll to Top UI Trigger
     btnScrollToTop.addEventListener('click', () => {
         documentViewport.scrollTo({ top: 0, behavior: 'smooth' });
     });
 
     // ==========================================================================
-    // PRECISE LINE HIGHLIGHTING & NAVIGATION
+    // LINE HIGHLIGHTING
     // ==========================================================================
     function highlightDocumentLines(chunks) {
-        // Remove prior highlights
-        const highlightedRows = documentViewport.querySelectorAll('.code-line-row.active-highlight');
-        highlightedRows.forEach(row => row.classList.remove('active-highlight'));
+        documentViewport.querySelectorAll('.code-line-row.active-highlight')
+            .forEach(r => r.classList.remove('active-highlight'));
+        if (!chunks?.length) return;
 
-        if (!chunks || chunks.length === 0) return;
-
-        let firstMatchLine = null;
-
+        let firstLine = null;
         chunks.forEach(chunk => {
-            const start = chunk.start_line;
-            const end = chunk.end_line;
-            
-            if (firstMatchLine === null || start < firstMatchLine) {
-                firstMatchLine = start;
-            }
-
-            for (let l = start; l <= end; l++) {
-                const lineRow = documentViewport.querySelector(`.code-line-row[data-line="${l}"]`);
-                if (lineRow) {
-                    lineRow.classList.add('active-highlight');
-                }
+            if (firstLine === null || chunk.start_line < firstLine) firstLine = chunk.start_line;
+            for (let l = chunk.start_line; l <= chunk.end_line; l++) {
+                const row = documentViewport.querySelector(`.code-line-row[data-line="${l}"]`);
+                if (row) row.classList.add('active-highlight');
             }
         });
 
-        // Scroll smoothly to target line
-        if (firstMatchLine !== null) {
-            const targetRow = documentViewport.querySelector(`.code-line-row[data-line="${firstMatchLine}"]`);
-            if (targetRow) {
-                const viewportHeight = documentViewport.clientHeight;
-                const rowTop = targetRow.offsetTop;
-                // Center line in viewport for ideal readability
+        if (firstLine !== null) {
+            const target = documentViewport.querySelector(`.code-line-row[data-line="${firstLine}"]`);
+            if (target) {
                 documentViewport.scrollTo({
-                    top: rowTop - (viewportHeight / 3),
+                    top: target.offsetTop - documentViewport.clientHeight / 3,
                     behavior: 'smooth'
                 });
             }
         }
     }
 
-    // Local Text filtering in document stream
     docSearch.addEventListener('input', () => {
         const query = docSearch.value.trim().toLowerCase();
-        const rows = documentViewport.querySelectorAll('.code-line-row');
-        
-        rows.forEach(row => {
+        documentViewport.querySelectorAll('.code-line-row').forEach(row => {
             row.classList.remove('search-matched');
             if (query.length >= 2) {
                 const content = row.querySelector('.code-line-content').textContent.toLowerCase();
-                if (content.includes(query)) {
-                    row.classList.add('search-matched');
-                }
+                if (content.includes(query)) row.classList.add('search-matched');
             }
         });
-        
-        // Scroll to first filter hit
         if (query.length >= 2) {
-            const firstHit = documentViewport.querySelector('.code-line-row.search-matched');
-            if (firstHit) {
-                firstHit.scrollIntoView({ block: 'center', behavior: 'smooth' });
-            }
+            const hit = documentViewport.querySelector('.code-line-row.search-matched');
+            if (hit) hit.scrollIntoView({ block: 'center', behavior: 'smooth' });
         }
     });
 
     // ==========================================================================
-    // INTERACTIVE NEURAL CHAT SYSTEM (SSE INTERACTION)
+    // CHAT SYSTEM
     // ==========================================================================
-    
-    // Auto-expand input box
     chatInput.addEventListener('input', () => {
         chatInput.style.height = 'auto';
-        chatInput.style.height = (chatInput.scrollHeight - 10) + 'px';
+        chatInput.style.height = (chatInput.scrollHeight - 8) + 'px';
     });
 
-    chatForm.addEventListener('submit', (e) => {
+    chatForm.addEventListener('submit', e => {
         e.preventDefault();
         const text = chatInput.value.trim();
         if (!text || state.isThinking) return;
-        
         submitChatQuery(text);
     });
 
-    // Handle shift+enter to submit, normal enter submits
-    chatInput.addEventListener('keydown', (e) => {
+    chatInput.addEventListener('keydown', e => {
         if (e.key === 'Enter' && !e.shiftKey) {
             e.preventDefault();
             chatForm.requestSubmit();
@@ -359,50 +514,44 @@ document.addEventListener('DOMContentLoaded', () => {
 
     async function submitChatQuery(messageText) {
         state.isThinking = true;
+        state.isStreaming = false;
         setChatInputState(true);
-        
-        // Remove empty placeholders
-        const placeholder = chatLog.querySelector('.chat-placeholder');
-        if (placeholder) placeholder.remove();
+        setAgentStatus('thinking', 'Thinking...');
+        setSessionState('THINKING', 'Processing query...', 'delta-active');
 
-        // Render User message
+        chatLog.querySelector('.chat-placeholder')?.remove();
         appendMessage('user', messageText);
         chatInput.value = '';
         chatInput.style.height = 'auto';
-        
-        // Prepare AI Message placeholder
-        const aiBubbleId = 'ai-bubble-' + Date.now();
+
+        const aiBubbleId = 'ai-' + Date.now();
         const aiBubble = appendMessage('assistant', '', aiBubbleId);
         const textElement = aiBubble.querySelector('.bubble-content-text');
-        
-        // Update inference state indicator
-        metricInference.querySelector('.metric-value').textContent = 'THINKING';
-        metricInference.querySelector('.metric-delta').textContent = 'Processing prompt...';
+        aiBubble.classList.add('streaming');
+        aiBubble.querySelector('.bubble-avatar').classList.add('thinking-pulse');
 
         try {
-            // Trigger API fetch for EventStream (SSE POST)
             const response = await fetch('/api/chat', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    message: messageText,
-                    history: state.chatHistory
-                })
+                body: JSON.stringify({ message: messageText, history: state.chatHistory })
             });
 
             if (!response.ok) {
-                const errorData = await response.json();
-                throw new Error(errorData.detail || "Inference failed");
+                const err = await response.json();
+                throw new Error(err.detail || 'Inference failed');
             }
 
             const reader = response.body.getReader();
             const decoder = new TextDecoder();
-            let rawBuffer = "";
-            let generatedAnswer = "";
+            let rawBuffer = '';
+            let generatedAnswer = '';
             let retrievedChunks = [];
+            let firstToken = true;
 
-            metricInference.querySelector('.metric-value').textContent = 'STREAMING';
-            metricInference.querySelector('.metric-delta').textContent = 'Receiving tokens...';
+            state.isStreaming = true;
+            setAgentStatus('streaming', 'Streaming...');
+            setSessionState('STREAMING', 'Receiving response...', 'delta-active');
 
             while (true) {
                 const { done, value } = await reader.read();
@@ -410,210 +559,201 @@ document.addEventListener('DOMContentLoaded', () => {
 
                 rawBuffer += decoder.decode(value, { stream: true });
                 const lines = rawBuffer.split('\n\n');
-                rawBuffer = lines.pop(); // Keep partial line buffer
+                rawBuffer = lines.pop();
 
                 for (const line of lines) {
-                    if (line.trim().startsWith('data: ')) {
-                        const dataStr = line.replace(/^data:\s*/, '').trim();
-                        
-                        if (dataStr === '[DONE]') {
-                            break;
-                        }
+                    if (!line.trim().startsWith('data: ')) continue;
+                    const dataStr = line.replace(/^data:\s*/, '').trim();
+                    if (dataStr === '[DONE]') break;
 
-                        try {
-                            const data = JSON.parse(dataStr);
-                            if (data.type === 'metadata') {
-                                // Capture matching context chunks
-                                retrievedChunks = data.chunks;
-                                highlightDocumentLines(retrievedChunks);
-                                addCitationsToBubble(aiBubble, retrievedChunks);
-                            } else if (data.type === 'token') {
-                                generatedAnswer += data.text;
-                                renderAIResponse(textElement, generatedAnswer);
-                                chatLog.scrollTop = chatLog.scrollHeight;
-                            } else if (data.type === 'error') {
-                                throw new Error(data.detail);
+                    try {
+                        const data = JSON.parse(dataStr);
+                        if (data.type === 'metadata') {
+                            retrievedChunks = data.chunks;
+                            highlightDocumentLines(retrievedChunks);
+                            addCitationsToBubble(aiBubble, retrievedChunks);
+                        } else if (data.type === 'token') {
+                            if (firstToken) {
+                                aiBubble.querySelector('.bubble-avatar').classList.remove('thinking-pulse');
+                                firstToken = false;
                             }
-                        } catch (parseErr) {
-                            // Suppress partial or malformed chunk parse errors
+                            generatedAnswer += data.text;
+                            renderAIResponse(textElement, generatedAnswer, true);
+                            chatLog.scrollTop = chatLog.scrollHeight;
+                        } else if (data.type === 'error') {
+                            throw new Error(data.detail);
                         }
-                    }
+                    } catch (_) { /* partial SSE chunk */ }
                 }
             }
 
-            // Chat finalized successfully
+            renderAIResponse(textElement, generatedAnswer, false);
+            aiBubble.classList.remove('streaming');
+
             state.chatHistory.push({ role: 'user', content: messageText });
             state.chatHistory.push({ role: 'assistant', content: generatedAnswer });
-            
-            // Render suggested questions (if generated)
+
             attachSuggestions(aiBubble, generatedAnswer);
-            
-            metricInference.querySelector('.metric-value').textContent = 'READY';
-            metricInference.querySelector('.metric-delta').textContent = 'CUDA Active';
+            addCopyButton(aiBubble, generatedAnswer);
+
+            setAgentStatus('', 'Ready');
+            setSessionState('ACTIVE', `${state.chatHistory.length / 2 | 0} exchanges`, 'delta-pos');
 
         } catch (err) {
             console.error(err);
-            textElement.innerHTML = `<span style="color: var(--accent-error); font-weight: 500;">
-                <i class="fa-solid fa-triangle-exclamation"></i> Engine offline: ${err.message}
-            </span>`;
-            showToast("Inference disrupted.", "error");
-            
-            metricInference.querySelector('.metric-value').textContent = 'ERROR';
-            metricInference.querySelector('.metric-delta').textContent = 'Check Ollama server';
+            textElement.innerHTML = `<span style="color:var(--accent-error)"><i class="fa-solid fa-triangle-exclamation"></i> ${escapeHTML(err.message)}</span>`;
+            aiBubble.classList.remove('streaming');
+            showToast('Inference failed — check Ollama is running.', 'error');
+            setAgentStatus('', 'Error');
+            setSessionState('ERROR', 'Check Ollama server', 'delta-neg');
         } finally {
             state.isThinking = false;
+            state.isStreaming = false;
             setChatInputState(false);
+            aiBubble.querySelector('.bubble-avatar')?.classList.remove('thinking-pulse');
             chatLog.scrollTop = chatLog.scrollHeight;
         }
     }
 
     function setChatInputState(loading) {
-        if (loading) {
-            chatInput.disabled = true;
-            btnSubmitChat.disabled = true;
-            btnSubmitChat.innerHTML = '<i class="fa-solid fa-spinner spinner-icon"></i>';
-        } else {
-            chatInput.disabled = false;
-            btnSubmitChat.disabled = false;
-            btnSubmitChat.innerHTML = '<i class="fa-solid fa-paper-plane"></i>';
-            chatInput.focus();
-        }
+        chatInput.disabled = loading;
+        btnSubmitChat.disabled = loading;
+        btnSubmitChat.innerHTML = loading
+            ? '<i class="fa-solid fa-spinner spinner-icon"></i>'
+            : '<i class="fa-solid fa-paper-plane"></i>';
+        if (!loading) chatInput.focus();
     }
 
-    // Appending a message element to the chat panel
     function appendMessage(role, text, id = null) {
         const bubble = document.createElement('div');
         bubble.className = `chat-bubble ${role}`;
         if (id) bubble.id = id;
 
-        const avatarIcon = role === 'user' ? 'fa-user' : 'fa-robot';
-        const avatar = `<div class="bubble-avatar"><i class="fa-solid ${avatarIcon}"></i></div>`;
-        
-        let contentHTML = '';
+        const avatarIcon = role === 'user' ? 'fa-user' : 'fa-brain';
+        const roleLabel = role === 'user' ? 'You' : 'Cortex';
+        const time = formatTime();
+
         if (role === 'user') {
-            contentHTML = `<div class="bubble-content">${escapeHTML(text)}</div>`;
-        } else {
-            contentHTML = `
+            bubble.innerHTML = `
+                <div class="bubble-avatar"><i class="fa-solid ${avatarIcon}"></i></div>
                 <div class="bubble-content-wrapper">
+                    <div class="bubble-meta">
+                        <span class="bubble-role">${roleLabel}</span>
+                        <span class="bubble-time">${time}</span>
+                    </div>
+                    <div class="bubble-content">${escapeHTML(text)}</div>
+                </div>
+            `;
+        } else {
+            bubble.innerHTML = `
+                <div class="bubble-avatar"><i class="fa-solid ${avatarIcon}"></i></div>
+                <div class="bubble-content-wrapper">
+                    <div class="bubble-meta">
+                        <span class="bubble-role">${roleLabel}</span>
+                        <span class="bubble-time">${time}</span>
+                    </div>
                     <div class="bubble-content">
                         <div class="bubble-content-text">
-                            <i class="fa-solid fa-circle-notch spinner-icon"></i> Interrogating local document models...
+                            <div class="typing-indicator">
+                                <div class="typing-dots"><span></span><span></span><span></span></div>
+                                <span>Cortex is thinking...</span>
+                            </div>
                         </div>
                     </div>
                 </div>
             `;
         }
 
-        bubble.innerHTML = role === 'user' ? avatar + contentHTML : avatar + contentHTML;
         chatLog.appendChild(bubble);
         chatLog.scrollTop = chatLog.scrollHeight;
         return bubble;
     }
 
-    // Simple custom markdown renderer
-    function renderAIResponse(element, markdownText) {
-        // Remove suggestions from the main text body so we can render them as badged buttons below
-        let cleanedText = markdownText;
-        const suggestionRegex = /💡\s*Suggestion:\s*(.+)$/gm;
-        cleanedText = cleanedText.replace(suggestionRegex, '');
-        
-        // Strip out trailing headers / bullet formatting of suggestions
-        cleanedText = cleanedText.replace(/Suggested Follow-up Questions:?\s*$/i, '');
-        cleanedText = cleanedText.replace(/💡\s*Suggestions:?\s*$/i, '');
+    function renderAIResponse(element, markdownText, streaming = false) {
+        let cleaned = markdownText;
+        cleaned = cleaned.replace(/💡\s*Suggestion:\s*(.+)$/gm, '');
+        cleaned = cleaned.replace(/Suggested Follow-up Questions:?\s*$/i, '');
+        cleaned = cleaned.replace(/💡\s*Suggestions:?\s*$/i, '');
 
-        let html = escapeHTML(cleanedText);
-
-        // Bold text **bold**
+        let html = escapeHTML(cleaned);
         html = html.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
-        
-        // Bullet points (start with - or * )
         html = html.replace(/^\s*[-*]\s+(.*)$/gm, '<li>$1</li>');
-        
-        // Clean up standalone lists
         html = html.replace(/(<li>.*<\/li>)/gs, '<ul>$1</ul>');
-        
-        // Blockquotes (starts with &gt;)
         html = html.replace(/^&gt;\s+(.*)$/gm, '<blockquote>$1</blockquote>');
-        
-        // Inline code blocks `code`
-        html = html.replace(/`(.*?)`/g, '<code style="font-family: var(--font-mono); background: rgba(0,0,0,0.3); padding: 0.1rem 0.3rem; border-radius: 4px; color: #a5b4fc;">$1</code>');
-
-        // Preserve paragraph returns
+        html = html.replace(/`(.*?)`/g, '<code class="inline-code">$1</code>');
         html = html.replace(/\n/g, '<br>');
-
-        // Clean double <br> wrappers
         html = html.replace(/(<br>){2,}/g, '<br><br>');
 
+        if (streaming) html += '<span class="streaming-cursor"></span>';
         element.innerHTML = html;
     }
 
-    // Dynamic Citation badges addition
+    function addCopyButton(aiBubble, text) {
+        const meta = aiBubble.querySelector('.bubble-meta');
+        if (!meta || meta.querySelector('.bubble-action-btn')) return;
+
+        const btn = document.createElement('button');
+        btn.className = 'bubble-action-btn';
+        btn.innerHTML = '<i class="fa-regular fa-copy"></i> Copy';
+        btn.addEventListener('click', () => {
+            navigator.clipboard.writeText(text).then(() => showToast('Copied to clipboard', 'success'));
+        });
+        meta.appendChild(btn);
+    }
+
     function addCitationsToBubble(aiBubble, chunks) {
-        if (!chunks || chunks.length === 0) return;
-        
+        if (!chunks?.length) return;
         const wrapper = aiBubble.querySelector('.bubble-content-wrapper');
-        let citationBar = wrapper.querySelector('.citation-meta');
-        
-        if (!citationBar) {
-            citationBar = document.createElement('div');
-            citationBar.className = 'citation-meta';
-            citationBar.innerHTML = '<span>Retrieved Context:</span>';
-            wrapper.appendChild(citationBar);
+        let bar = wrapper.querySelector('.citation-meta');
+        if (!bar) {
+            bar = document.createElement('div');
+            bar.className = 'citation-meta';
+            bar.innerHTML = '<span><i class="fa-solid fa-link"></i> Sources:</span>';
+            wrapper.appendChild(bar);
         }
 
-        // Add citation pill buttons
-        chunks.forEach((chunk, index) => {
+        chunks.forEach(chunk => {
             const pillId = `pill-${chunk.start_line}-${chunk.end_line}`;
-            if (citationBar.querySelector(`#${pillId}`)) return; // Avoid duplicates
-
+            if (bar.querySelector(`#${pillId}`)) return;
             const pill = document.createElement('span');
             pill.id = pillId;
             pill.className = 'citation-badge';
-            pill.innerHTML = `<i class="fa-solid fa-link"></i> Lines ${chunk.start_line}-${chunk.end_line}`;
-            
+            pill.textContent = `L${chunk.start_line}–${chunk.end_line}`;
             pill.addEventListener('click', () => {
                 highlightDocumentLines([chunk]);
-                showToast(`Viewing referenced section: Lines ${chunk.start_line}-${chunk.end_line}`, 'info');
+                showToast(`Jumped to lines ${chunk.start_line}–${chunk.end_line}`, 'info');
             });
-
-            citationBar.appendChild(pill);
+            bar.appendChild(pill);
         });
     }
 
-    // Attach suggested questions
     function attachSuggestions(aiBubble, fullText) {
         const wrapper = aiBubble.querySelector('.bubble-content-wrapper');
-        
-        // Parse suggestions out
-        const lines = fullText.split('\n');
         const suggestions = [];
-        
-        lines.forEach(line => {
-            // Check for suggestions pattern
+
+        fullText.split('\n').forEach(line => {
             if (line.includes('💡 Suggestion:')) {
                 let text = line.replace(/.*💡\s*Suggestion:\s*/, '').trim();
-                // Strip markdown formatting from question if it has any
                 text = text.replace(/\*\*/g, '').replace(/\*/g, '');
                 if (text) suggestions.push(text);
             }
         });
 
-        if (suggestions.length === 0) return;
+        if (!suggestions.length) return;
 
         const box = document.createElement('div');
         box.className = 'suggestions-box';
-        
+        box.innerHTML = '<div class="suggestions-label">Suggested follow-ups</div>';
+
         suggestions.forEach(q => {
             const btn = document.createElement('button');
             btn.className = 'suggestion-btn';
-            btn.innerHTML = `<i class="fa-regular fa-lightbulb"></i> ${q}`;
-            
+            btn.innerHTML = `<i class="fa-regular fa-lightbulb"></i> ${escapeHTML(q)}`;
             btn.addEventListener('click', () => {
                 if (state.isThinking) return;
                 chatInput.value = q;
                 chatForm.requestSubmit();
             });
-            
             box.appendChild(btn);
         });
 
@@ -621,48 +761,63 @@ document.addEventListener('DOMContentLoaded', () => {
         chatLog.scrollTop = chatLog.scrollHeight;
     }
 
-    // Purge Memory functionality
+    // ==========================================================================
+    // PURGE
+    // ==========================================================================
     btnPurgeMemory.addEventListener('click', async () => {
-        if (confirm("Are you sure you want to purge all active documents and conversation history?")) {
-            try {
-                await fetch('/api/clear', { method: 'POST' });
-                
-                // Clear UI State
-                state.filename = null;
-                state.metrics = { chars: 0, words: 0, lines: 0, chunks: 0 };
-                state.documentLines = [];
-                state.chatHistory = [];
-                
-                documentViewport.innerHTML = `
-                    <div class="viewport-placeholder">
-                        <i class="fa-solid fa-arrow-up-from-bracket upload-pulse-icon"></i>
-                        <p>Upload a schema document to initialize visual datalink stream</p>
+        if (!confirm('Clear the active document and all chat history?')) return;
+        try {
+            await fetch('/api/clear', { method: 'POST' });
+
+            state.filename = null;
+            state.metrics = { chars: 0, words: 0, lines: 0, chunks: 0 };
+            state.documentLines = [];
+            state.chatHistory = [];
+
+            documentViewport.innerHTML = `
+                <div class="viewport-placeholder">
+                    <div class="placeholder-orbit">
+                        <div class="orbit-ring"></div>
+                        <i class="fa-solid fa-file-arrow-up upload-pulse-icon"></i>
                     </div>
-                `;
-                
-                chatLog.innerHTML = `
-                    <div class="chat-placeholder">
-                        <i class="fa-solid fa-satellite-dish chat-placeholder-icon"></i>
-                        <h3>Intelligence Agent Idle</h3>
-                        <p>Await document ingestion before submitting neural queries.</p>
+                    <h3>Drop a document to begin</h3>
+                    <p>Upload a PDF, DOCX, Markdown, or text file to start chatting with your content.</p>
+                    <button class="btn-primary btn-sm" id="btnPlaceholderUpload">
+                        <i class="fa-solid fa-cloud-arrow-up"></i> Upload Document
+                    </button>
+                </div>
+            `;
+            document.getElementById('btnPlaceholderUpload').addEventListener('click', openIngestionModal);
+
+            chatLog.innerHTML = `
+                <div class="chat-placeholder">
+                    <div class="agent-avatar-large">
+                        <i class="fa-solid fa-brain"></i>
+                        <div class="avatar-glow"></div>
                     </div>
-                `;
-                
-                activeDocName.textContent = 'NO ACTIVE DOCUMENT LOADED';
-                
-                // Reset Telemetry counters
-                valLines.textContent = '0 Lines';
-                valWords.textContent = '0 Words';
-                valMem.textContent = '0.0 MB';
-                valMemDelta.textContent = '-0.0 MB Saved';
-                valMemDelta.className = "metric-delta";
-                
-                openIngestionModal();
-                showToast("Core memory purged successfully.", "success");
-            } catch (err) {
-                console.error(err);
-                showToast("Failed to purge system memory.", "error");
-            }
+                    <h3>Cortex Agent Ready</h3>
+                    <p>Upload a document, then ask questions about its content. Answers are grounded in your file with line citations.</p>
+                    <div class="placeholder-hints">
+                        <span><i class="fa-solid fa-quote-left"></i> Summarize key points</span>
+                        <span><i class="fa-solid fa-magnifying-glass"></i> Find specific info</span>
+                        <span><i class="fa-solid fa-list"></i> Extract action items</span>
+                    </div>
+                </div>
+            `;
+
+            activeDocName.textContent = 'NO DOCUMENT LOADED';
+            valLines.textContent = '0';
+            valWords.textContent = '0';
+            valDocName.textContent = '—';
+            valDocStatus.textContent = 'Awaiting upload';
+            valDocStatus.className = 'metric-delta';
+            setSessionState('IDLE', 'Ready to chat', 'delta-pos');
+            setAgentStatus('', 'Idle');
+
+            openIngestionModal();
+            showToast('Session cleared.', 'success');
+        } catch (err) {
+            showToast('Failed to clear session.', 'error');
         }
     });
 });

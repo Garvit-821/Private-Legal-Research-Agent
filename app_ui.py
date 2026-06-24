@@ -6,10 +6,9 @@ from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
 # ==========================================
 # 1. PAGE SETUP & GLOBAL STYLING (THE LOOK)
 # ==========================================
-st.set_page_config(page_title="Nexus Analytics Workspace", page_icon="⚡", layout="wide")
+st.set_page_config(page_title="Local-Cortex Workspace", page_icon="🧠", layout="wide")
 
 # Custom Dark Glassmorphism CSS Inject
-# Change this near the top of your app_ui.py file
 st.markdown("""
     <style>
         /* Base app wrappers */
@@ -19,7 +18,7 @@ st.markdown("""
         div[data-testid="stMetricValue"] {
             font-size: 24px !important;
             font-weight: 700;
-            color: #00FFCC !important;
+            color: #00f5ff !important;
         }
         div[data-testid="stMetricLabel"] {
             font-size: 13px !important;
@@ -30,16 +29,16 @@ st.markdown("""
         /* Interactive Chat Enhancements */
         .stChatInputContainer {
             border-radius: 12px !important;
-            border: 1px solid #334155 !important;
+            border: 1px solid #8b5cf6 !important;
         }
         
         /* Sidebar layout tweak */
         section[data-testid="stSidebar"] {
-            background-color: #0B0F19 !important;
-            border-right: 1px solid #1E293B;
+            background-color: #040406 !important;
+            border-right: 1px solid #8b5cf6;
         }
     </style>
-""", unsafe_allow_html=True) # <-- Fixed argument name here
+""", unsafe_allow_html=True)
 # ==========================================
 # 2. SESSION STATE STATE MANAGEMENT
 # ==========================================
@@ -55,14 +54,16 @@ if "doc_metrics" not in st.session_state:
 # ==========================================
 with st.sidebar:
     st.markdown("### 🛰️ DEPLOYMENT CONTROL")
-    st.info("🟢 ENGINE: **Ollama**\n\n🧠 MODEL: `qwen2.5:3b` (GPU-Bound)")
+    st.info("🟢 SYSTEM: **Ollama**\n\n🧠 MODEL: `qwen2.5` (Local)")
     st.markdown("---")
     
     st.markdown("### 📁 INGESTION ENGINE")
-    uploaded_file = st.file_uploader("Drop analysis blueprint", type=["txt"])
+    uploaded_file = st.file_uploader("Drop analysis blueprint", type=["txt", "pdf", "docx", "md"])
     
     if uploaded_file is not None:
-        string_data = uploaded_file.getvalue().decode("utf-8")
+        from backend import extract_text_from_bytes
+        file_bytes = uploaded_file.getvalue()
+        string_data = extract_text_from_bytes(uploaded_file.name, file_bytes)
         st.session_state.doc_context = string_data
         
         # Calculate file intelligence metrics
@@ -82,23 +83,17 @@ with st.sidebar:
 # ==========================================
 if st.session_state.doc_context is None:
     # High-end welcome layout when empty
-    st.markdown("# ⚡ NEXUS DEEP DOCUMENT ANALYTICS")
-    st.markdown("### Privacy-First Hardware Accelerated Local Intel Agent")
+    st.markdown("# 🧠 LOCAL-CORTEX")
+    st.markdown("### Open-Source Local Intelligence Engine")
     st.markdown("---")
     st.warning("⚠️ INITIALIZATION HALTED: System waiting for local data ingestion profile. Drop a file in the left control deck to activate the neural pipeline.")
-    
-    with st.expander("🛠️ System Baseline Specs Detected", expanded=True):
-        col1, col2, col3 = st.columns(3)
-        col1.metric(label="Compute Core Target", value="RTX 3050 (4GB)")
-        col2.metric(label="RAM Constriction Threshold", value="8GB Safe Mode")
-        col3.metric(label="Inference Latency Target", value="~25 ms/tok")
 else:
     # Dashboard Header
-    st.markdown(f"## 🛸 ACTIVE COCKPIT: {uploaded_file.name.upper()}")
+    st.markdown(f"## 🧠 LOCAL-CORTEX ACTIVE: {uploaded_file.name.upper()}")
     
     # Live Token/Data Dashboard Grid
     m1, m2, m3, m4 = st.columns(4)
-    m1.metric(label="Inference State", value="READY", delta="CUDA Active")
+    m1.metric(label="Engine Status", value="READY", delta="Online")
     m2.metric(label="Structural Lines parsed", value=f"{st.session_state.doc_metrics['lines']} lines")
     m3.metric(label="Token Matrix Size", value=f"{st.session_state.doc_metrics['words']} words")
     m4.metric(label="Memory Footprint", value="~2.3 GB", delta="-3.1 GB Saved", delta_color="inverse")
