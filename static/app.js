@@ -5,6 +5,7 @@
 document.addEventListener('DOMContentLoaded', () => {
     const state = {
         filename: null,
+        documents: [], // list of uploaded filenames
         metrics: { chars: 0, words: 0, lines: 0, chunks: 0 },
         documentLines: [],
         chatHistory: [],
@@ -44,8 +45,16 @@ document.addEventListener('DOMContentLoaded', () => {
     const chatInput = document.getElementById('chatInput');
     const btnSubmitChat = document.getElementById('btnSubmitChat');
     const btnPurgeMemory = document.getElementById('btnPurgeMemory');
+    const btnExportChat = document.getElementById('btnExportChat');
+    const btnCloseModal = document.getElementById('btnCloseModal');
     const agentStatus = document.getElementById('agentStatus');
     const toastContainer = document.getElementById('toastContainer');
+
+    const documentTabsBar = document.getElementById('documentTabsBar');
+    const tabsList = document.getElementById('tabsList');
+    const btnTabAdd = document.getElementById('btnTabAdd');
+    const contextBanner = document.getElementById('contextBanner');
+    const contextDocPills = document.getElementById('contextDocPills');
 
     const bgCanvas = document.getElementById('bgCanvas');
     const loaderCanvas = document.getElementById('loaderCanvas');
@@ -220,6 +229,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const res = await fetch('/api/document');
             const data = await res.json();
 
+            state.documents = data.documents || [];
             if (data.filename) {
                 state.filename = data.filename;
                 state.metrics = data.metrics;
@@ -228,8 +238,12 @@ document.addEventListener('DOMContentLoaded', () => {
                 updateTelemetryUI();
                 closeIngestionModal();
                 enableChatSystem();
+                renderTabs();
+                renderContextBanner();
                 showToast(`Session restored: ${data.filename}`, 'success');
             } else {
+                renderTabs();
+                renderContextBanner();
                 openIngestionModal();
             }
         } catch (err) {
@@ -239,18 +253,28 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function openIngestionModal() {
+        if (state.documents.length >= 5) {
+            showToast('Maximum limit of 5 documents reached. Please delete an existing file first.', 'warn');
+            return;
+        }
         uploadModal.classList.remove('hidden');
+        // Show the dismiss button only if the user already has documents loaded
+        btnCloseModal.hidden = state.documents.length === 0;
         disableChatSystem();
     }
 
     function closeIngestionModal() {
         uploadModal.classList.add('hidden');
+        btnCloseModal.hidden = true;
+        if (state.filename) {
+            enableChatSystem();
+        }
     }
 
     function enableChatSystem() {
         chatInput.disabled = false;
         btnSubmitChat.disabled = false;
-        chatInput.placeholder = 'Ask anything about your document...';
+        chatInput.placeholder = 'Ask anything about your document(s)...';
         setAgentStatus('', 'Ready');
     }
 
@@ -261,8 +285,172 @@ document.addEventListener('DOMContentLoaded', () => {
         setAgentStatus('', 'Idle');
     }
 
+    function shortenFilename(name) {
+        if (!name) return '';
+        if (name.length <= 15) return name;
+        return name.substring(0, 10) + '...' + name.substring(name.length - 4);
+    }
+
+    function renderTabs() {
+        if (!state.documents || state.documents.length === 0) {
+            documentTabsBar.style.display = 'none';
+            btnOpenUpload.style.opacity = '1';
+            btnOpenUpload.disabled = false;
+            return;
+        }
+
+        documentTabsBar.style.display = 'flex';
+        tabsList.innerHTML = '';
+
+        state.documents.forEach(docName => {
+            const tab = document.createElement('div');
+            tab.className = `doc-tab${docName === state.filename ? ' active' : ''}`;
+            tab.setAttribute('data-filename', docName);
+            tab.innerHTML = `
+                <span class="tab-name" title="${escapeHTML(docName)}">${escapeHTML(shortenFilename(docName))}</span>
+                <button class="btn-tab-close" data-filename="${escapeHTML(docName)}" title="Delete document">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
+            `;
+
+            tab.addEventListener('click', () => {
+                if (docName !== state.filename) {
+                    selectDocument(docName);
+                }
+            });
+
+            const btnClose = tab.querySelector('.btn-tab-close');
+            btnClose.addEventListener('click', (e) => {
+                e.stopPropagation();
+                deleteDocument(docName);
+            });
+
+            tabsList.appendChild(tab);
+        });
+
+        // Disable add button if limit reached
+        if (state.documents.length >= 5) {
+            btnTabAdd.style.opacity = '0.4';
+            btnTabAdd.style.cursor = 'not-allowed';
+            btnTabAdd.title = 'Limit of 5 files reached';
+            btnOpenUpload.style.opacity = '0.4';
+            btnOpenUpload.disabled = true;
+            btnOpenUpload.title = 'Limit of 5 files reached';
+        } else {
+            btnTabAdd.style.opacity = '1';
+            btnTabAdd.style.cursor = 'pointer';
+            btnTabAdd.title = 'Upload new document';
+            btnOpenUpload.style.opacity = '1';
+            btnOpenUpload.disabled = false;
+            btnOpenUpload.title = 'Upload document';
+        }
+    }
+
+    function renderContextBanner() {
+        if (!state.documents || state.documents.length === 0) {
+            contextBanner.style.display = 'none';
+            return;
+        }
+        contextBanner.style.display = 'flex';
+        contextDocPills.innerHTML = '';
+        state.documents.forEach(docName => {
+            const pill = document.createElement('span');
+            pill.className = 'context-doc-pill';
+            pill.title = docName;
+            pill.innerHTML = `<i class="fa-solid fa-circle-check"></i>${escapeHTML(shortenFilename(docName))}`;
+            contextDocPills.appendChild(pill);
+        });
+    }
+
+    async function selectDocument(docName) {
+        try {
+            const res = await fetch('/api/select', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ filename: docName })
+            });
+            const data = await res.json();
+            if (data.status === 'success') {
+                state.filename = data.active_filename;
+                
+                const docRes = await fetch('/api/document');
+                const docData = await docRes.json();
+                state.documentLines = docData.content.split('\n');
+                state.metrics = docData.metrics;
+
+                renderDocument(docData.content, true);
+                updateTelemetryUI();
+                renderTabs();
+                renderContextBanner();
+                showToast(`Switched context to ${docName}`, 'success');
+            }
+        } catch (err) {
+            console.error(err);
+            showToast('Failed to switch document context.', 'error');
+        }
+    }
+
+    async function deleteDocument(docName) {
+        if (!confirm(`Are you sure you want to delete "${docName}" from memory?`)) return;
+        try {
+            const res = await fetch('/api/delete', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ filename: docName })
+            });
+            const data = await res.json();
+            if (data.status === 'success') {
+                state.documents = data.documents;
+                state.filename = data.active_filename;
+
+                if (state.filename) {
+                    const docRes = await fetch('/api/document');
+                    const docData = await docRes.json();
+                    state.documentLines = docData.content.split('\n');
+                    state.metrics = docData.metrics;
+                    renderDocument(docData.content, true);
+                    updateTelemetryUI();
+                    enableChatSystem();
+                } else {
+                    state.metrics = { chars: 0, words: 0, lines: 0, chunks: 0 };
+                    state.documentLines = [];
+                    renderEmptyViewerPlaceholder();
+                    updateTelemetryUI();
+                    disableChatSystem();
+                    openIngestionModal();
+                }
+                renderTabs();
+                renderContextBanner();
+                showToast(`Deleted ${docName}`, 'success');
+            }
+        } catch (err) {
+            console.error(err);
+            showToast('Failed to delete document.', 'error');
+        }
+    }
+
+    function renderEmptyViewerPlaceholder() {
+        documentViewport.innerHTML = `
+            <div class="viewport-placeholder">
+                <div class="placeholder-orbit">
+                    <div class="orbit-ring"></div>
+                    <i class="fa-solid fa-file-arrow-up upload-pulse-icon"></i>
+                </div>
+                <h3>Drop a document to begin</h3>
+                <p>Upload a PDF, DOCX, Markdown, or text file to start chatting with your content.</p>
+                <button class="btn-primary btn-sm" id="btnPlaceholderUpload">
+                    <i class="fa-solid fa-cloud-arrow-up"></i> Upload Document
+                </button>
+            </div>
+        `;
+        document.getElementById('btnPlaceholderUpload').addEventListener('click', openIngestionModal);
+    }
+
     btnOpenUpload.addEventListener('click', openIngestionModal);
     btnPlaceholderUpload.addEventListener('click', openIngestionModal);
+    btnTabAdd.addEventListener('click', openIngestionModal);
+    btnExportChat.addEventListener('click', exportChatHistory);
+    btnCloseModal.addEventListener('click', closeIngestionModal);
 
     ['dragenter', 'dragover'].forEach(evt => {
         dropzone.addEventListener(evt, e => {
@@ -349,8 +537,8 @@ document.addEventListener('DOMContentLoaded', () => {
             addLog(`parsed ${data.metrics?.lines || '?'} lines`);
             await delay(300);
 
-            setProgress(80, 'Building search index...', 'INDEXING');
-            addLog('build_index() — TF-IDF weights');
+            setProgress(80, 'Generating semantic embeddings...', 'EMBEDDING');
+            addLog('ollama.embeddings() — batch generation');
             await delay(350);
 
             setProgress(95, 'Integrating into cortex memory...', 'INTEGRATING');
@@ -364,6 +552,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
             state.filename = data.filename;
             state.metrics = data.metrics;
+            state.documents = data.documents;
 
             const docRes = await fetch('/api/document');
             const docData = await docRes.json();
@@ -374,6 +563,8 @@ document.addEventListener('DOMContentLoaded', () => {
             uploadProgressContainer.hidden = true;
 
             closeIngestionModal();
+            renderTabs();
+                renderContextBanner();
             await renderDocumentWithScan(docData.content);
             updateTelemetryUI();
             enableChatSystem();
@@ -473,6 +664,46 @@ document.addEventListener('DOMContentLoaded', () => {
                 });
             }
         }
+    }
+
+    async function selectAndHighlightDocumentLines(chunks) {
+        if (!chunks?.length) return;
+        const firstChunk = chunks[0];
+        const targetFilename = firstChunk.filename;
+        
+        if (targetFilename && targetFilename !== state.filename) {
+            showToast(`Switching context to ${targetFilename}...`, 'info');
+            try {
+                const res = await fetch('/api/select', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ filename: targetFilename })
+                });
+                const data = await res.json();
+                if (data.status === 'success') {
+                    state.filename = targetFilename;
+                    
+                    const docRes = await fetch('/api/document');
+                    const docData = await docRes.json();
+                    state.documentLines = docData.content.split('\n');
+                    state.metrics = docData.metrics;
+                    
+                    renderDocument(docData.content, true);
+                    updateTelemetryUI();
+                    renderTabs();
+                renderContextBanner();
+                }
+            } catch (err) {
+                console.error(err);
+                showToast('Failed to switch document context.', 'error');
+                return;
+            }
+        }
+        
+        setTimeout(() => {
+            highlightDocumentLines(chunks);
+            showToast(`Jumped to lines L${firstChunk.start_line}–${firstChunk.end_line}`, 'info');
+        }, 50);
     }
 
     docSearch.addEventListener('input', () => {
@@ -713,15 +944,18 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         chunks.forEach(chunk => {
-            const pillId = `pill-${chunk.start_line}-${chunk.end_line}`;
+            const safeName = chunk.filename ? chunk.filename.replace(/[^a-zA-Z0-9]/g, '_') : '';
+            const pillId = `pill-${safeName}-${chunk.start_line}-${chunk.end_line}`;
             if (bar.querySelector(`#${pillId}`)) return;
             const pill = document.createElement('span');
             pill.id = pillId;
             pill.className = 'citation-badge';
-            pill.textContent = `L${chunk.start_line}–${chunk.end_line}`;
+            
+            const shortName = shortenFilename(chunk.filename);
+            pill.textContent = `${shortName}: L${chunk.start_line}–${chunk.end_line}`;
+            
             pill.addEventListener('click', () => {
-                highlightDocumentLines([chunk]);
-                showToast(`Jumped to lines ${chunk.start_line}–${chunk.end_line}`, 'info');
+                selectAndHighlightDocumentLines([chunk]);
             });
             bar.appendChild(pill);
         });
@@ -762,32 +996,56 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // ==========================================================================
-    // PURGE
+    // EXPORT & PURGE
     // ==========================================================================
+    function exportChatHistory() {
+        if (!state.chatHistory.length) {
+            showToast('No chat history to export.', 'warn');
+            return;
+        }
+        let md = `# Local-Cortex Chat Export\n`;
+        md += `*Exported on: ${new Date().toLocaleString()}*\n\n`;
+        md += `### Analyzed Documents:\n`;
+        state.documents.forEach(doc => {
+            md += `- ${doc}\n`;
+        });
+        md += `\n---\n\n`;
+        
+        state.chatHistory.forEach((msg, idx) => {
+            const roleName = msg.role === 'user' ? '👤 User' : '🤖 Cortex Agent';
+            md += `### ${roleName}\n`;
+            md += `${msg.content}\n\n`;
+            if (idx < state.chatHistory.length - 1) {
+                md += `---\n\n`;
+            }
+        });
+        
+        const blob = new Blob([md], { type: 'text/markdown;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        const timestamp = new Date().toISOString().replace(/[:.]/g, '-').substring(0, 19);
+        link.href = url;
+        link.setAttribute('download', `cortex_chat_export_${timestamp}.md`);
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        showToast('Chat history exported successfully!', 'success');
+    }
+
     btnPurgeMemory.addEventListener('click', async () => {
-        if (!confirm('Clear the active document and all chat history?')) return;
+        if (!confirm('Clear all documents and chat history?')) return;
         try {
             await fetch('/api/clear', { method: 'POST' });
 
             state.filename = null;
+            state.documents = [];
             state.metrics = { chars: 0, words: 0, lines: 0, chunks: 0 };
             state.documentLines = [];
             state.chatHistory = [];
 
-            documentViewport.innerHTML = `
-                <div class="viewport-placeholder">
-                    <div class="placeholder-orbit">
-                        <div class="orbit-ring"></div>
-                        <i class="fa-solid fa-file-arrow-up upload-pulse-icon"></i>
-                    </div>
-                    <h3>Drop a document to begin</h3>
-                    <p>Upload a PDF, DOCX, Markdown, or text file to start chatting with your content.</p>
-                    <button class="btn-primary btn-sm" id="btnPlaceholderUpload">
-                        <i class="fa-solid fa-cloud-arrow-up"></i> Upload Document
-                    </button>
-                </div>
-            `;
-            document.getElementById('btnPlaceholderUpload').addEventListener('click', openIngestionModal);
+            renderEmptyViewerPlaceholder();
+            renderTabs();
+                renderContextBanner();
 
             chatLog.innerHTML = `
                 <div class="chat-placeholder">

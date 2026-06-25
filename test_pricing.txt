@@ -1,0 +1,5 @@
+Company Pricing Policy
+
+1. Starter Plan: $10 per month. Includes 5 projects and basic support.
+2. Professional Plan: $25 per month. Includes unlimited projects and priority support.
+3. Enterprise Plan: Custom pricing. Contact sales for details.

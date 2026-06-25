@@ -100,6 +100,12 @@
                 </div>
 
                 <div class="panel-body document-viewer-wrapper">
+                    <div class="document-tabs-bar" id="documentTabsBar" style="display: none;">
+                        <div class="tabs-list" id="tabsList"></div>
+                        <button class="btn-tab-add" id="btnTabAdd" title="Upload new document">
+                            <i class="fa-solid fa-plus"></i>
+                        </button>
+                    </div>
                     <div class="doc-active-banner" id="docActiveBanner">
                         <i class="fa-solid fa-file-invoice"></i>
                         <span id="activeDocName">NO DOCUMENT LOADED</span>
@@ -135,10 +141,20 @@
                             <span class="agent-status-dot"></span>
                             <span class="agent-status-text">Idle</span>
                         </div>
+                        <button class="btn-secondary btn-sm" id="btnExportChat" title="Export chat history">
+                            <i class="fa-solid fa-download"></i> Export
+                        </button>
                         <button class="btn-secondary btn-sm" id="btnPurgeMemory">
                             <i class="fa-solid fa-trash-can"></i> Clear
                         </button>
                     </div>
+                </div>
+
+                <!-- Context awareness banner: shows all docs loaded in agent memory -->
+                <div class="context-banner" id="contextBanner" style="display:none;">
+                    <i class="fa-solid fa-database"></i>
+                    <span class="context-banner-label">Agent context:</span>
+                    <div class="context-doc-pills" id="contextDocPills"></div>
                 </div>
 
                 <div class="panel-body chat-interface-wrapper">
@@ -178,7 +194,12 @@
     <div class="modal-overlay" id="uploadModal">
         <div class="modal-card">
             <div class="modal-header">
-                <h2><i class="fa-solid fa-brain"></i> CORTEX INGESTION</h2>
+                <div class="modal-header-top">
+                    <h2><i class="fa-solid fa-brain"></i> CORTEX INGESTION</h2>
+                    <button class="btn-modal-close" id="btnCloseModal" title="Dismiss" hidden>
+                        <i class="fa-solid fa-xmark"></i>
+                    </button>
+                </div>
                 <p>Load a document into local memory — everything stays on your machine</p>
             </div>
 
