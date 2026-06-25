@@ -905,6 +905,17 @@ document.addEventListener('DOMContentLoaded', () => {
         cleaned = cleaned.replace(/💡\s*Suggestion:\s*(.+)$/gm, '');
         cleaned = cleaned.replace(/Suggested Follow-up Questions:?\s*$/i, '');
         cleaned = cleaned.replace(/💡\s*Suggestions:?\s*$/i, '');
+        
+        // Sometimes the model outputs a header for the questions but no other text.
+        cleaned = cleaned.replace(/\*\*Follow-Up Questions:?\*\*\s*/gi, '');
+        cleaned = cleaned.replace(/Follow-Up Questions:?\s*/gi, '');
+
+        cleaned = cleaned.trim();
+        
+        // If the model refused or only outputted suggestions, avoid a hollow empty message
+        if (cleaned.length === 0) {
+            cleaned = "I cannot find that information in the documents.";
+        }
 
         let html = escapeHTML(cleaned);
         html = html.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
