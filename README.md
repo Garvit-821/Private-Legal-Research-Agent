@@ -1,259 +1,212 @@
 # Local-Cortex
 
-Local-Cortex is a document question-answering application that runs entirely on your machine. Upload one or more documents, ask questions in natural language, and receive answers grounded in the uploaded content with line-level source citations. All inference is performed through [Ollama](https://ollama.com); no external API keys or cloud services are required.
+Local document Q&A tool. Upload one or more files, ask questions, and get answers grounded in your documents with line-level citations. Inference runs through Ollama on your machine — no external API calls.
 
-The primary interface is a split-screen web application: a document viewer on the left and a streaming chat agent on the right. A FastAPI backend handles ingestion, retrieval, and generation. Legacy entry points (`app.py` CLI and `app_ui.py` Streamlit) are included for simpler or alternative workflows.
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+[![Python 3.10+](https://img.shields.io/badge/Python-3.10%2B-blue)](https://www.python.org/)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.100%2B-009688)](https://fastapi.tiangolo.com/)
+
+**Branch:** `features` (multi-document web UI)  
+**Repo:** [Garvit-821/Local-ollama-powered-ai-assisted-doc-analyzer](https://github.com/Garvit-821/Local-ollama-powered-ai-assisted-doc-analyzer)
 
 ---
 
-## Quick Start
+## Table of Contents
 
-### Prerequisites
+- [Overview](#overview)
+- [Features](#features)
+- [Architecture](#architecture)
+- [Tech Stack](#tech-stack)
+- [Project Structure](#project-structure)
+- [Setup and Installation](#setup-and-installation)
+- [Usage](#usage)
+- [Configuration](#configuration)
+- [API Reference](#api-reference)
+- [Interface Versions](#interface-versions)
+- [Hardware Notes](#hardware-notes)
+- [Privacy](#privacy)
+- [Trade-offs and Limitations](#trade-offs-and-limitations)
+- [Roadmap](#roadmap)
+- [Contributing](#contributing)
+- [Acknowledgments](#acknowledgments)
+- [License](#license)
 
-| Requirement | Minimum |
-|-------------|---------|
-| Python | 3.10 or later |
-| Ollama | Latest stable release |
-| RAM | 8 GB (16 GB recommended for larger models) |
-| Disk | ~3 GB free (model weights) |
+---
 
-### 1. Install Ollama and pull models
+## Overview
 
-#### Windows
+Local-Cortex started as a command-line document chatbot (`app.py`), went through a Streamlit prototype (`app_ui.py`), and now ships a FastAPI + vanilla JS web application (`backend.py` + `static/`). The `features` branch is the current recommended version: multi-document upload, embedding-based retrieval, SSE streaming, and line-level citations.
 
-```powershell
-# Install from https://ollama.com/download/windows, then:
-ollama pull qwen2.5:3b
-ollama serve
-```
+The backend keeps uploaded documents in memory, chunks them with line traceability, generates per-chunk embeddings via Ollama, and retrieves relevant sections using cosine similarity. For comparison-style queries, retrieval switches to a full-scan mode that guarantees coverage across every loaded file. Responses stream back over Server-Sent Events. The frontend highlights source lines and renders clickable citation badges for each answer.
 
-#### macOS
-
-```bash
-# Install from https://ollama.com/download/mac, or:
-brew install ollama
-ollama pull qwen2.5:3b
-ollama serve
-```
-
-#### Linux
-
-```bash
-curl -fsSL https://ollama.com/install.sh | sh
-ollama pull qwen2.5:3b
-ollama serve
-```
-
-Verify Ollama is running:
-
-```bash
-ollama list
-curl http://localhost:11434/api/tags
-```
-
-### 2. Clone and set up the project
-
-#### Windows (PowerShell)
-
-```powershell
-git clone https://github.com/Garvit-821/Local-ollama-powered-ai-assisted-doc-analyzer.git
-cd Local-ollama-powered-ai-assisted-doc-analyzer
-git checkout features
-
-python -m venv venv
-.\venv\Scripts\Activate.ps1
-pip install fastapi uvicorn langchain-ollama langchain-core pydantic python-docx pypdf
-```
-
-#### macOS / Linux
-
-```bash
-git clone https://github.com/Garvit-821/Local-ollama-powered-ai-assisted-doc-analyzer.git
-cd Local-ollama-powered-ai-assisted-doc-analyzer
-git checkout features
-
-python3 -m venv venv
-source venv/bin/activate
-pip install fastapi uvicorn langchain-ollama langchain-core pydantic python-docx pypdf
-```
-
-### 3. Run the application
-
-```bash
-# With virtual environment activated
-python -m uvicorn backend:app --host 127.0.0.1 --port 8000 --reload
-```
-
-Open **http://127.0.0.1:8000** in your browser.
-
-### 4. Optional: alternative interfaces
-
-**Terminal CLI** (single document, no web UI):
-
-```bash
-python app.py
-```
-
-Edit `TARGET_DOC` in `app.py` to point at your file (default: `sample_doc.txt`).
-
-**Streamlit UI** (single document):
-
-```bash
-pip install streamlit
-streamlit run app_ui.py
-```
+| | |
+|---|---|
+| Inference | Ollama on `localhost:11434` |
+| Retrieval | Ollama embeddings + cosine similarity |
+| Default model | `qwen2.5:3b` (chat and embeddings) |
+| Multi-document | Up to 5 files per session |
+| Target hardware | ~4 GB VRAM GPU, 8 GB RAM |
+| Persistence | None — state clears on server restart |
 
 ---
 
 ## Features
 
+| | What it does |
+|---|---|
+| File upload | `.txt`, `.md`, `.pdf`, `.docx` via drag-and-drop or file browser |
+| Multi-document | Load up to 5 files; tab bar, context banner, per-file delete |
+| Retrieval | Embedding search with balanced per-document chunk selection |
+| Comparison mode | Keywords like `compare`, `versus`, `both documents` trigger top-3-per-file retrieval |
+| Chat | SSE token streaming with thinking/streaming session states |
+| Citations | `filename: L12–45` badges; click to jump to cited lines (switches active doc if needed) |
+| Follow-ups | Model appends two suggested questions per reply (parsed into clickable buttons) |
+| Search | Client-side filter over document lines (minimum 2 characters) |
+| Export | Download full chat history as Markdown |
+| Session reset | Clear button purges all documents and chat history |
+| Telemetry | Live metrics: active document, lines, words, session state |
+
 ### Document ingestion
 
-- Supported formats: `.pdf`, `.docx`, `.md`, `.markdown`, `.txt`
-- Drag-and-drop or file browser upload
 - Text extraction via `pypdf` (PDF) and `python-docx` (Word)
 - Line-preserving chunking (~1000 characters per chunk, 200-character overlap)
 - Per-chunk embedding generation through Ollama at upload time
 - Document metrics: character count, word count, line count, chunk count
 
-### Multi-document sessions
-
-- Up to **5 documents** loaded simultaneously
-- Tab bar to switch the active document in the viewer
-- Context banner listing all files currently in agent memory
-- Per-tab delete with confirmation
-- Chat retrieval spans **all** loaded documents, not only the active tab
-
-### Retrieval and grounding
-
-- Query embedding compared against all chunk embeddings via cosine similarity
-- **Standard mode**: guarantees 2 top-scoring chunks per document, then fills remaining slots globally (minimum 6 chunks total)
-- **Comparison mode**: triggered by keywords such as `compare`, `versus`, `differentiate`, `summarize all`, `both documents`; retrieves top 3 chunks per file to avoid missing cross-document context
-- Retrieved chunks are injected into the system prompt with explicit file name and line range labels
-
 ### Chat interface
 
-- Server-Sent Events (SSE) token streaming
-- Line highlighting in the document viewer when citations are returned
-- Clickable citation pills (`filename: L12–45`) that jump to the cited lines
-- In-document text search (minimum 2 characters)
-- Follow-up suggestion buttons parsed from model output
 - Copy-to-clipboard on assistant messages
-- Export full chat history as Markdown
-- Session purge (clears all documents and chat history)
-
-### Telemetry bar
-
-Real-time display of active document name, parsed line count, word count, and session state (Idle, Thinking, Streaming, Active, Error).
+- Cinematic upload progress with staged ingestion log
+- Ambient particle background and document scan animation
 
 ---
 
 ## Architecture
 
-### High-level system diagram
+### System overview
 
 ```mermaid
-flowchart TB
-    subgraph Client["Browser (static/)"]
-        UI[index.html + styles.css]
-        JS[app.js]
+graph TB
+    subgraph Browser["Browser (static/)"]
+        UI["UI shell"]
+        DV["Document viewer"]
+        CP["Chat panel"]
+        Tabs["Document tabs"]
+        UI --> DV
+        UI --> CP
+        UI --> Tabs
     end
 
     subgraph Server["FastAPI (backend.py)"]
-        API[REST + SSE API]
-        State[(DocumentState\nin-memory)]
-        Chunker[chunk_document]
-        Retrieve[retrieve_matched_chunks]
+        API["REST + SSE"]
+        DS["DocumentState"]
+        CH["chunk_document()"]
+        RET["retrieve_matched_chunks()"]
+        LC["LangChain / ChatOllama"]
+        API --> DS
+        DS --> CH
+        API --> RET
+        API --> LC
     end
 
-    subgraph Ollama["Ollama (localhost:11434)"]
-        ChatLLM[qwen2.5:3b\nchat]
-        Embed[OllamaEmbeddings\nqwen2.5:3b]
+    subgraph Local["Local runtime"]
+        OL["Ollama :11434"]
+        CHAT["qwen2.5:3b chat"]
+        EMB["qwen2.5:3b embeddings"]
+        OL --> CHAT
+        OL --> EMB
     end
 
-    UI --> JS
-    JS -->|HTTP /api/*| API
-    API --> State
-    API --> Chunker
-    API --> Retrieve
-    API -->|embed_documents / embed_query| Embed
-    API -->|astream| ChatLLM
-    Embed --> Ollama
-    ChatLLM --> Ollama
+    CP -->|POST /api/chat| API
+    UI -->|POST /api/upload| API
+    UI -->|GET /api/document| API
+    UI -->|POST /api/select| API
+    UI -->|POST /api/delete| API
+    LC -->|astream| OL
+    API -->|embed_documents / embed_query| EMB
+    RET -.->|chunk metadata| CP
 ```
 
-### Component responsibilities
+### Upload flow
 
-| Component | File | Role |
-|-----------|------|------|
-| Web UI | `static/index.html`, `static/styles.css`, `static/app.js` | Split-screen cockpit, upload modal, chat, citations |
-| API server | `backend.py` | Upload, retrieval, chat streaming, static file hosting |
-| CLI | `app.py` | Terminal-based single-document chat |
-| Streamlit UI | `app_ui.py` | Alternative browser UI via Streamlit |
-| Design tokens | `DESIGN.md` | UI color and typography reference (not loaded at runtime) |
+```mermaid
+flowchart LR
+    A[User uploads file] --> B{Valid extension?}
+    B -->|No| C[400 error]
+    B -->|Yes| D{Under 5 doc limit?}
+    D -->|No| E[400 error]
+    D -->|Yes| F[POST /api/upload]
+    F --> G[extract_text_from_bytes]
+    G --> H[chunk_document]
+    H --> I[embed_documents via Ollama]
+    I --> J[Store in DocumentState]
+    J --> K[Return metrics + doc list]
+    K --> L[Render in viewer]
+    L --> M[Enable chat input]
+```
 
-### Ingestion pipeline
+### Chat flow
 
 ```mermaid
 sequenceDiagram
-    participant U as User
-    participant F as Frontend
-    participant B as Backend
-    participant O as Ollama
+    participant User
+    participant UI as app.js
+    participant API as backend.py
+    participant OL as Ollama
 
-    U->>F: Upload file
-    F->>B: POST /api/upload
-    B->>B: extract_text_from_bytes()
-    B->>B: chunk_document()
-    B->>O: embed_documents(chunk texts)
-    O-->>B: embedding vectors
-    B->>B: Store in DocumentState
-    B-->>F: metrics + document list
-    F->>F: Render viewer + enable chat
+    User->>UI: Submit question
+    UI->>API: POST /api/chat
+
+    API->>API: Detect comparison vs standard mode
+    API->>OL: embed_query(message)
+    OL-->>API: query vector
+    API->>API: Score all chunks (cosine similarity)
+    API->>API: Select balanced chunks per document
+
+    API-->>UI: SSE metadata + chunks
+    UI->>UI: Highlight lines + citation pills
+
+    loop streaming
+        API->>OL: astream
+        OL-->>API: token
+        API-->>UI: SSE token event
+    end
+
+    API-->>UI: DONE
+    UI->>UI: Attach suggestions + copy button
 ```
 
-### Chat and retrieval pipeline
+### Session state
 
 ```mermaid
-sequenceDiagram
-    participant U as User
-    participant F as Frontend
-    participant B as Backend
-    participant O as Ollama
-
-    U->>F: Submit question
-    F->>B: POST /api/chat (SSE)
-    B->>B: Detect comparison vs standard retrieval
-    B->>O: embed_query(user message)
-    O-->>B: query vector
-    B->>B: Score chunks (cosine similarity)
-    B->>B: Build system prompt with context
-    B-->>F: SSE metadata (matched chunks)
-    F->>F: Highlight lines + show citations
-    B->>O: astream(prompt)
-    loop Token stream
-        O-->>B: token
-        B-->>F: SSE token event
-        F->>F: Render streaming answer
-    end
-    B-->>F: SSE [DONE]
-    F->>F: Attach suggestions + copy button
+stateDiagram-v2
+    [*] --> Idle
+    Idle --> Ingesting: upload
+    Ingesting --> Ready: indexed
+    Ready --> Streaming: chat
+    Streaming --> Ready: done
+    Ready --> Idle: purge
+    Ready --> Ingesting: new upload
+    Ready --> Ready: switch tab
 ```
 
-### Multi-document retrieval logic
+### Context selection (retrieval)
 
 ```mermaid
 flowchart TD
-    Q[User query] --> D{Comparison trigger\ndetected?}
-    D -->|Yes| FS[Full-scan mode\nTop 3 chunks per document]
-    D -->|No| ST[Standard mode\n2 chunks per document guaranteed]
-    ST --> PAD[Fill remaining slots\nfrom global best scores]
+    Q[Query received] --> S{Documents loaded?}
+    S -->|No| E[400 error]
+    S -->|Yes| C{Comparison trigger\ndetected?}
+    C -->|Yes| FS[Top 3 chunks per document]
+    C -->|No| ST[2 chunks per document guaranteed]
+    ST --> PAD[Fill remaining slots from global best scores]
     FS --> CTX[Build labeled context blocks]
     PAD --> CTX
-    CTX --> LLM[Send to Ollama chat model]
+    CTX --> P[Build system prompt]
+    P --> ST2[Stream response via SSE]
 ```
 
-### Data model (in-memory)
+### Multi-document data model
 
 ```mermaid
 erDiagram
@@ -277,61 +230,51 @@ erDiagram
 
 `DocumentState` is a module-level singleton. Restarting the server clears all uploaded documents.
 
----
+### Component responsibilities
 
-## API Reference
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| `POST` | `/api/upload` | Upload and process a document (multipart form, field: `file`) |
-| `GET` | `/api/document` | Return active document content, metrics, and document list |
-| `POST` | `/api/select` | Set active document (`{"filename": "..."}`) |
-| `POST` | `/api/delete` | Remove a document from memory |
-| `POST` | `/api/clear` | Clear all documents and reset state |
-| `POST` | `/api/chat` | Stream a chat response (SSE); body: `{"message": "...", "history": [...]}` |
-
-### Chat SSE event types
-
-| Event `type` | Payload | When sent |
-|--------------|---------|-----------|
-| `metadata` | `{ chunks: [...] }` | Before token stream; used for citations and highlighting |
-| `token` | `{ text: "..." }` | During generation |
-| `error` | `{ detail: "..." }` | On inference failure |
-| `[DONE]` | — | Stream complete |
+| Component | File | Role |
+|-----------|------|------|
+| Web UI | `static/index.html`, `static/styles.css`, `static/app.js` | Split-screen cockpit, upload modal, chat, citations |
+| API server | `backend.py` | Upload, retrieval, chat streaming, static file hosting |
+| CLI | `app.py` | Terminal-based single-document chat |
+| Streamlit UI | `app_ui.py` | Alternative browser UI via Streamlit |
+| Design tokens | `DESIGN.md` | UI color and typography reference (not loaded at runtime) |
 
 ---
 
-## Configuration
+## Tech Stack
 
-The `features` branch uses hardcoded defaults in `backend.py`:
+| Layer | Tool |
+|-------|------|
+| Backend | Python 3.10+, FastAPI, Uvicorn |
+| LLM | Ollama + `qwen2.5:3b` |
+| Embeddings | OllamaEmbeddings + `qwen2.5:3b` |
+| Orchestration | LangChain (`langchain-ollama`, `langchain-core`) |
+| Similarity | Custom cosine similarity (`math`) |
+| PDF | `pypdf` |
+| DOCX | `python-docx` |
+| Frontend | HTML, CSS, JS (no build step) |
+| Fonts | Inter, JetBrains Mono (Google Fonts CDN) |
+| Icons | Font Awesome 6 (CDN) |
 
-| Setting | Default | Location |
-|---------|---------|----------|
-| Chat model | `qwen2.5:3b` | `ChatOllama(model=...)` |
-| Embedding model | `qwen2.5:3b` | `OllamaEmbeddings(model=...)` |
-| Temperature | `0.3` | `ChatOllama` |
-| Max output tokens | `768` | `num_predict` |
-| Max documents | `5` | Upload validation |
-| Chunk size | `1000` chars | `chunk_document()` |
-| Chunk overlap | `200` chars | `chunk_document()` |
-| Chat history window | `6` messages | `/api/chat` |
+Older entry points still in the repo: `app.py` (CLI), `app_ui.py` (Streamlit).
 
-Ollama base URL defaults to `http://localhost:11434`.
+Note: `SimpleTFIDF` is defined in `backend.py` but is not used in the `features` branch retrieval path.
 
 ---
 
-## Project structure
+## Project Structure
 
 ```
 Local-ollama-powered-ai-assisted-doc-analyzer/
-├── backend.py          # FastAPI server, retrieval, chat, document processing
-├── app.py              # CLI chatbot (single file)
-├── app_ui.py           # Streamlit alternative UI
+├── backend.py          # API, chunking, embeddings, retrieval, SSE chat
 ├── static/
 │   ├── index.html      # Main web interface
-│   ├── styles.css      # Layout and visual design
-│   └── app.js          # Client logic, SSE, UI state
-├── DESIGN.md           # Design system reference
+│   ├── app.js          # Client logic, SSE, UI state
+│   └── styles.css      # Layout and visual design
+├── DESIGN.md           # UI design tokens
+├── app.py              # CLI version (single document)
+├── app_ui.py           # Streamlit version (single document)
 ├── sample_doc.txt      # Sample file for CLI demo
 ├── test_pricing.txt    # Sample pricing document
 ├── test_sample.md      # Sample markdown file
@@ -342,19 +285,488 @@ Local-ollama-powered-ai-assisted-doc-analyzer/
 
 ---
 
-## Design and UX
+## Setup and Installation
 
-The web interface uses a dark cockpit layout with a split panel:
+### Requirements
 
-- **Left panel**: line-numbered document viewer with search, scroll-to-top, and tab navigation
-- **Right panel**: Cortex agent chat with streaming responses, citation pills, and suggestion chips
-- **Upload modal**: drag-and-drop zone with staged ingestion progress
+| | Minimum | Recommended |
+|---|---|---|
+| Python | 3.10 | 3.12 |
+| RAM | 8 GB | 16 GB |
+| GPU | Not required | NVIDIA with 4 GB+ VRAM |
+| Disk | ~3 GB free | For Ollama model + venv |
+| OS | Linux, macOS, Windows 10/11 | |
 
-Visual tokens (colors, typography scale, spacing) are documented in `DESIGN.md`. The runtime UI uses Inter and JetBrains Mono via Google Fonts.
+You also need [Ollama](https://ollama.com) installed and running before chat will work. The web UI loads without it, but inference will fail until Ollama is up.
 
 ---
 
-## Trade-offs and limitations
+### Step 1 — Install Ollama
+
+Pick your platform and run the commands below.
+
+#### Linux (Ubuntu / Debian)
+
+```bash
+curl -fsSL https://ollama.com/install.sh | sh
+```
+
+#### macOS
+
+```bash
+curl -fsSL https://ollama.com/install.sh | sh
+```
+
+Or download the `.dmg` installer from https://ollama.com/download
+
+Or via Homebrew:
+
+```bash
+brew install ollama
+```
+
+#### Windows (PowerShell)
+
+Download and run the installer from https://ollama.com/download
+
+After install, open a new terminal and confirm Ollama is available:
+
+```powershell
+ollama --version
+```
+
+---
+
+### Step 2 — Pull the default model
+
+This downloads `qwen2.5:3b` (~2 GB). Run once.
+
+```bash
+ollama pull qwen2.5:3b
+```
+
+Verify it is listed:
+
+```bash
+ollama list
+```
+
+Start the Ollama service if it is not already running:
+
+```bash
+# Linux / macOS — usually starts automatically after install
+ollama serve
+```
+
+On Windows, Ollama runs as a background app after installation. Check the system tray for the Ollama icon.
+
+---
+
+### Step 3 — Clone the repository
+
+```bash
+git clone https://github.com/Garvit-821/Local-ollama-powered-ai-assisted-doc-analyzer.git
+cd Local-ollama-powered-ai-assisted-doc-analyzer
+git checkout features
+```
+
+---
+
+### Step 4 — Create a virtual environment
+
+#### Linux / macOS
+
+```bash
+python3 -m venv venv
+source venv/bin/activate
+```
+
+#### Windows (PowerShell)
+
+```powershell
+python -m venv venv
+.\venv\Scripts\Activate.ps1
+```
+
+#### Windows (Command Prompt)
+
+```cmd
+python -m venv venv
+venv\Scripts\activate.bat
+```
+
+Your prompt should show `(venv)` when the environment is active.
+
+---
+
+### Step 5 — Install Python dependencies
+
+Run this inside the activated virtual environment:
+
+```bash
+pip install --upgrade pip
+
+pip install langchain-ollama langchain-core fastapi uvicorn python-multipart python-docx pypdf pydantic
+```
+
+Optional — only if you want to run the older Streamlit UI (`app_ui.py`):
+
+```bash
+pip install streamlit
+```
+
+---
+
+### Step 6 — Start the server
+
+#### Linux / macOS
+
+```bash
+uvicorn backend:app --host 127.0.0.1 --port 8000 --reload
+```
+
+#### Windows (PowerShell or Command Prompt, with venv active)
+
+```powershell
+uvicorn backend:app --host 127.0.0.1 --port 8000 --reload
+```
+
+Alternative if `uvicorn` is not on PATH:
+
+```bash
+python -m uvicorn backend:app --host 127.0.0.1 --port 8000 --reload
+```
+
+You should see:
+
+```
+INFO:     Uvicorn running on http://127.0.0.1:8000
+INFO:     Application startup complete.
+```
+
+---
+
+### Step 7 — Open the app
+
+Go to http://127.0.0.1:8000 in your browser.
+
+Upload `sample_doc.txt` (included in the repo) to test. Ask something like: *"What is the daily calorie target?"*
+
+To test multi-document mode, upload two or more files and ask: *"Compare the diet plans in both documents."*
+
+---
+
+### Full install script (copy-paste)
+
+#### Linux / macOS
+
+```bash
+# Ollama
+curl -fsSL https://ollama.com/install.sh | sh
+ollama pull qwen2.5:3b
+
+# Project
+git clone https://github.com/Garvit-821/Local-ollama-powered-ai-assisted-doc-analyzer.git
+cd Local-ollama-powered-ai-assisted-doc-analyzer
+git checkout features
+
+python3 -m venv venv
+source venv/bin/activate
+pip install --upgrade pip
+pip install langchain-ollama langchain-core fastapi uvicorn python-multipart python-docx pypdf pydantic
+
+# Run
+uvicorn backend:app --host 127.0.0.1 --port 8000 --reload
+```
+
+#### Windows (PowerShell)
+
+```powershell
+# Ollama — install manually from https://ollama.com/download first, then:
+ollama pull qwen2.5:3b
+
+# Project
+git clone https://github.com/Garvit-821/Local-ollama-powered-ai-assisted-doc-analyzer.git
+cd Local-ollama-powered-ai-assisted-doc-analyzer
+git checkout features
+
+python -m venv venv
+.\venv\Scripts\Activate.ps1
+pip install --upgrade pip
+pip install langchain-ollama langchain-core fastapi uvicorn python-multipart python-docx pypdf pydantic
+
+# Run
+uvicorn backend:app --host 127.0.0.1 --port 8000 --reload
+```
+
+---
+
+### Verify everything is working
+
+```bash
+# Ollama API reachable
+curl http://localhost:11434/api/tags
+
+# App server reachable (in a second terminal)
+curl http://127.0.0.1:8000/api/document
+```
+
+Expected: Ollama returns a JSON list of models. The app returns `{"status":"empty"}` before any file is uploaded.
+
+---
+
+### Troubleshooting
+
+| Problem | Fix |
+|---------|-----|
+| `ollama: command not found` | Install Ollama from https://ollama.com and restart your terminal |
+| `connection refused` in chat | Run `ollama serve` (Linux/macOS) or open the Ollama app (Windows) |
+| `model not found` | Run `ollama pull qwen2.5:3b` |
+| `uvicorn: command not found` | Use `python -m uvicorn backend:app --host 127.0.0.1 --port 8000 --reload` |
+| Port 8000 already in use | Change port: `uvicorn backend:app --host 127.0.0.1 --port 8080 --reload` |
+| PowerShell blocks venv activation | Run `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned` once, then retry |
+| PDF/DOCX upload fails | Confirm `pypdf` and `python-docx` are installed in the active venv |
+| Upload fails at 5 files | Delete a document tab before uploading another file |
+| Empty or garbled PDF text | PDF may be image-based; use a text-based PDF or OCR preprocessing |
+| Slow first response | Ollama cold-starts the model; wait or keep Ollama running in background |
+| Weak multi-doc answers | `qwen2.5:3b` is small; try `qwen2.5:7b` or a dedicated embedding model |
+
+---
+
+### Running other versions
+
+**CLI (terminal chatbot):**
+
+```bash
+python app.py
+```
+
+Edit `TARGET_DOC` in `app.py` to point at your file (default: `sample_doc.txt`).
+
+**Streamlit UI (requires `pip install streamlit`):**
+
+```bash
+streamlit run app_ui.py
+```
+
+---
+
+## Usage
+
+1. Upload a document when the modal opens (or use the upload button in the header).
+2. The file appears in the left panel with line numbers. Upload up to 5 files; each appears as a tab.
+3. The context banner above the chat panel lists all files currently in agent memory.
+4. Type a question in the chat panel on the right.
+5. Relevant lines highlight as the answer streams in. Citation badges link back to those lines.
+6. Click a suggested follow-up question to send it automatically.
+7. Use **Export** to download the chat history as Markdown.
+8. Use **Clear** to purge all documents and chat history.
+
+### Supported formats
+
+| Format | Extension | How it's parsed |
+|--------|-----------|-----------------|
+| Plain text | `.txt` | UTF-8 decode |
+| Markdown | `.md`, `.markdown` | UTF-8 decode |
+| PDF | `.pdf` | `pypdf` |
+| Word | `.docx` | `python-docx` |
+
+### Example queries (`sample_doc.txt`)
+
+| Question | What happens |
+|----------|--------------|
+| "What is the daily calorie target?" | Highlights early lines; answer cites calorie range from the document |
+| "What are vegetarian breakfast options?" | Pulls from the breakfast section |
+| "Explain the Tuesday protocol" | Finds relevant diet execution rules |
+
+### Multi-document example queries
+
+| Question | What happens |
+|----------|--------------|
+| "Compare both diet plans" | Comparison mode: top 3 chunks per file sent to model |
+| "What are the differences between the documents?" | Cross-document retrieval with per-file labeling |
+| "Summarize all uploaded files" | Full-scan retrieval across every loaded document |
+
+### Keyboard shortcuts
+
+| Action | Key |
+|--------|-----|
+| Send | Enter |
+| New line | Shift + Enter |
+
+---
+
+## Configuration
+
+Values are hardcoded in `backend.py` on the `features` branch:
+
+| Setting | Default | Notes |
+|---------|---------|-------|
+| Chat model | `qwen2.5:3b` | `ChatOllama(model=...)` |
+| Embedding model | `qwen2.5:3b` | `OllamaEmbeddings(model=...)` |
+| Temperature | `0.3` | |
+| `num_predict` | `768` | Max output tokens |
+| Chunk size | `1000` chars | `chunk_document()` |
+| Chunk overlap | `200` chars | |
+| Max documents | `5` | Per session |
+| Standard retrieval | `2` chunks/doc | Plus global padding (min 6 total) |
+| Comparison retrieval | `3` chunks/doc | Triggered by comparison keywords |
+| History limit | `6` messages | Last 6 messages sent to model |
+| Host / port | `127.0.0.1:8000` | `uvicorn` args |
+| Ollama URL | `http://localhost:11434` | Default Ollama endpoint |
+
+---
+
+## API Reference
+
+Base URL: `http://127.0.0.1:8000`
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/` | Web UI |
+| GET | `/api/document` | Active document content, metrics, and document list |
+| POST | `/api/upload` | Upload file (multipart form, field: `file`) |
+| POST | `/api/select` | Set active document (`{"filename": "..."}`) |
+| POST | `/api/delete` | Remove a document from memory |
+| POST | `/api/clear` | Reset all documents and state |
+| POST | `/api/chat` | Chat (SSE response) |
+
+### Chat request body
+
+```json
+{
+  "message": "What is the daily calorie target?",
+  "history": [
+    { "role": "user", "content": "Summarize the document." },
+    { "role": "assistant", "content": "The document describes..." }
+  ]
+}
+```
+
+### Chat SSE events
+
+```
+data: {"type": "metadata", "chunks": [{"filename": "sample_doc.txt", "start_line": 1, "end_line": 13, "score": 0.85}]}
+
+data: {"type": "token", "text": "The"}
+
+data: {"type": "error", "detail": "..."}
+
+data: [DONE]
+```
+
+| Event `type` | Payload | When sent |
+|--------------|---------|-----------|
+| `metadata` | `{ chunks: [...] }` | Before token stream; used for citations and highlighting |
+| `token` | `{ text: "..." }` | During generation |
+| `error` | `{ detail: "..." }` | On inference failure |
+| `[DONE]` | — | Stream complete |
+
+### Upload response
+
+```json
+{
+  "status": "success",
+  "filename": "report.pdf",
+  "metrics": {
+    "chars": 12400,
+    "words": 2100,
+    "lines": 340,
+    "chunks": 14
+  },
+  "documents": ["report.pdf", "sample_doc.txt"]
+}
+```
+
+### Document response (active file)
+
+```json
+{
+  "filename": "sample_doc.txt",
+  "content": "Full document text...",
+  "metrics": {
+    "chars": 3200,
+    "words": 540,
+    "lines": 85,
+    "chunks": 4
+  },
+  "documents": ["sample_doc.txt"]
+}
+```
+
+---
+
+## Interface Versions
+
+| Version | File(s) | UI | Streaming | Retrieval | Multi-doc | Line citations |
+|---------|---------|-----|-----------|-----------|-----------|----------------|
+| v1 | `app.py` | Terminal | No | Full doc in prompt | No | No |
+| v2 | `app_ui.py` | Streamlit | No | Full doc in prompt | No | No |
+| v3 | `backend.py`, `static/` | Web | Yes | Embeddings + cosine similarity | Yes (up to 5) | Yes |
+
+Use the `features` branch for v3.
+
+Other branches in the repository:
+
+| Branch | Description |
+|--------|-------------|
+| `features` | Current multi-document web UI (recommended) |
+| `user-interface` | Earlier single-document TF-IDF web UI |
+| `enhancements` | Experimental hardening and retrieval improvements |
+| `main` | Base repository state |
+
+---
+
+## Hardware Notes
+
+Written with mid-range laptops in mind (e.g. RTX 3050 4 GB, 8 GB RAM):
+
+```mermaid
+graph LR
+    subgraph Hardware
+        GPU[4 GB VRAM]
+        RAM[8 GB RAM]
+    end
+    subgraph Choices
+        M[3B model]
+        H[6-msg history cap]
+        E[Embeddings at upload]
+        C[Chunk retrieval not full-doc]
+        MD[Multi-doc balanced retrieval]
+    end
+    Hardware --> Choices
+```
+
+- `qwen2.5:3b` fits in 4 GB VRAM through Ollama
+- History capped at 6 messages to limit memory growth
+- Embeddings are computed once at upload; queries only embed the user message
+- Retrieval sends matched chunks to the model, not the full document text
+- FastAPI + vanilla JS avoids Streamlit's full-page rerun on every message
+- Multi-document sessions increase memory use proportionally to total chunk count
+
+---
+
+## Privacy
+
+```mermaid
+flowchart LR
+    DOC[Document] --> MEM[In-memory state]
+    MEM --> OL[Ollama localhost]
+    OL --> OUT[Browser]
+    CLOUD[External APIs] -.->|not used| DOC
+```
+
+- No cloud LLM APIs
+- Documents live in process memory until cleared or server stops
+- No authentication — intended for local use on `127.0.0.1`
+- Single global session (not multi-user)
+- Fonts and icons load from CDN on first visit; host them locally if you need full offline UI
+
+This is a local development tool, not something to expose on a public network without additional hardening.
+
+---
+
+## Trade-offs and Limitations
 
 ### Deliberate design choices
 
@@ -369,14 +781,14 @@ Visual tokens (colors, typography scale, spacing) are documented in `DESIGN.md`.
 
 ### Known limitations
 
-1. **Embedding model**: The `features` branch uses `qwen2.5:3b` for both chat and embeddings. Dedicated embedding models (e.g. `nomic-embed-text`) typically produce better retrieval quality.
+1. **Embedding model**: `qwen2.5:3b` is used for both chat and embeddings. Dedicated embedding models (e.g. `nomic-embed-text`) typically produce better retrieval quality.
 2. **Model size**: `qwen2.5:3b` is lightweight but may produce shallow or incorrect answers on complex multi-document comparisons.
 3. **PDF extraction**: Text quality depends on PDF structure; scanned images without OCR are not supported.
 4. **No persistence**: Uploaded files and chat history are not saved to disk by the backend.
-5. **No authentication**: The server binds to localhost by default but exposes open CORS; do not expose untrusted networks without additional hardening.
-6. **Single process**: Concurrent uploads and chats share one in-memory state; not suitable for production multi-tenant deployment without architectural changes.
-7. **Prompt instructions in output**: Suggestion formatting instructions are duplicated in the system and human prompts; the model may occasionally echo them (the frontend strips most suggestion lines from the visible answer).
-8. **TF-IDF class unused**: `SimpleTFIDF` is defined in `backend.py` on this branch but is not wired into the retrieval path; retrieval is embedding-only.
+5. **No authentication**: Open CORS; do not expose on untrusted networks without hardening.
+6. **Single process**: Concurrent uploads and chats share one in-memory state.
+7. **Prompt leakage**: Suggestion formatting instructions may occasionally appear in model output; the frontend strips most of them.
+8. **Unused TF-IDF**: `SimpleTFIDF` is defined but not wired into retrieval on this branch.
 
 ### When to use which interface
 
@@ -384,42 +796,52 @@ Visual tokens (colors, typography scale, spacing) are documented in `DESIGN.md`.
 |-----------|----------|
 | Web UI (`backend.py` + `static/`) | Full feature set: multi-doc, citations, streaming, export |
 | Streamlit (`app_ui.py`) | Quick single-file prototyping |
-| CLI (`app.py`) | Scripting, terminal-only environments, minimal dependencies |
+| CLI (`app.py`) | Scripting, terminal-only environments |
 
 ---
 
-## Troubleshooting
+## Roadmap
 
-| Symptom | Likely cause | Fix |
-|---------|--------------|-----|
-| `Inference failed — check Ollama is running` | Ollama not started or model missing | Run `ollama serve` and `ollama pull qwen2.5:3b` |
-| Port 8000 already in use | Another process on that port | Stop the other process or use `--port 8001` |
-| Empty or garbled PDF text | PDF is image-based or encrypted | Use a text-based PDF or OCR preprocessing |
-| Slow first response | Cold model load | Wait for Ollama to load weights; consider a smaller model |
-| Upload fails at 5 files | Document limit reached | Delete a tab before uploading another file |
+- [x] Multiple documents per session
+- [x] Export chat history
+- [x] Line-level citations with document name
+- [ ] Dedicated embedding model (`nomic-embed-text`)
+- [ ] Hybrid TF-IDF + embedding retrieval
+- [ ] Model picker in the UI
+- [ ] Environment-variable configuration
+- [ ] Docker setup
+- [ ] Tests for chunking, retrieval, and API endpoints
+- [ ] Mobile layout
 
 ---
 
-## Development
+## Contributing
 
-Run with auto-reload during development:
+1. Fork the repository
+2. Branch off `features`: `git checkout -b your-change`
+3. Make the change and test locally
+4. Open a PR against `features`
 
-```bash
-python -m uvicorn backend:app --host 127.0.0.1 --port 8000 --reload
-```
+Keep pull requests small and describe what you changed.
 
-Static assets are served from `static/` at the root path. API routes are registered before the static mount to avoid routing conflicts.
+---
+
+## Acknowledgments
+
+- [Ollama](https://ollama.com) — local model runtime
+- [LangChain](https://www.langchain.com/) — prompt and history handling
+- [FastAPI](https://fastapi.tiangolo.com/) — API server
+- [Qwen2.5](https://huggingface.co/Qwen) — default model family
+- UI design tokens in `DESIGN.md` reference Wise's public design language
 
 ---
 
 ## License
 
-This project is licensed under the MIT License. See [LICENSE](LICENSE) for the full text.
-
-```
 MIT License
 
-Copyright (c) 2026 Garvit-821 and contributors
+```
+Copyright (c) 2026 Garvit Prakash
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -439,3 +861,5 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
+
+Issues: [GitHub Issues](https://github.com/Garvit-821/Local-ollama-powered-ai-assisted-doc-analyzer/issues)
