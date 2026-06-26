@@ -6,7 +6,7 @@ Local document Q&A tool. Upload one or more files, ask questions, and get answer
 [![Python 3.10+](https://img.shields.io/badge/Python-3.10%2B-blue)](https://www.python.org/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.100%2B-009688)](https://fastapi.tiangolo.com/)
 
-**Branch:** `features` (multi-document web UI)  
+**Branch:** `feature/agent-picker` (multi-document web UI + Agent Picker)  
 **Repo:** [Garvit-821/Local-ollama-powered-ai-assisted-doc-analyzer](https://github.com/Garvit-821/Local-ollama-powered-ai-assisted-doc-analyzer)
 
 ---
@@ -15,6 +15,8 @@ Local document Q&A tool. Upload one or more files, ask questions, and get answer
 
 - [Overview](#overview)
 - [Features](#features)
+- [Agent Picker](#agent-picker)
+- [JSON API Contract v1](#json-api-contract-v1)
 - [Architecture](#architecture)
 - [Tech Stack](#tech-stack)
 - [Project Structure](#project-structure)
@@ -35,17 +37,20 @@ Local document Q&A tool. Upload one or more files, ask questions, and get answer
 
 ## Overview
 
-Local-Cortex started as a command-line document chatbot (`app.py`), went through a Streamlit prototype (`app_ui.py`), and now ships a FastAPI + vanilla JS web application (`backend.py` + `static/`). The `features` branch is the current recommended version: multi-document upload, embedding-based retrieval, SSE streaming, and line-level citations.
+Local-Cortex is a FastAPI + vanilla JS application for private document Q&A. The `feature/agent-picker` branch extends the multi-document web UI with a hardware-aware **Agent Picker**: choose an Ollama chat model matched to your system, browse a curated model library, pull missing models, and run inference without cloud APIs.
 
-The backend keeps uploaded documents in memory, chunks them with line traceability, generates per-chunk embeddings via Ollama, and retrieves relevant sections using cosine similarity. For comparison-style queries, retrieval switches to a full-scan mode that guarantees coverage across every loaded file. Responses stream back over Server-Sent Events. The frontend highlights source lines and renders clickable citation badges for each answer.
+Documents are chunked with line traceability, embedded with a dedicated embedding model (`nomic-embed-text`), and retrieved via cosine similarity. The active **chat agent** (e.g. `qwen2.5:3b`, `llama3.1:8b`) is selected independently through the picker. Chat uses JSON schema v1 envelopes for REST and SSE, with a **10-message history cap** and per-agent context budgets.
 
 | | |
 |---|---|
 | Inference | Ollama on `localhost:11434` |
+| Chat model | User-selected via Agent Picker (default: `qwen2.5:3b`) |
+| Embedding model | `nomic-embed-text` (fixed; fallback: `qwen2.5:3b`) |
 | Retrieval | Ollama embeddings + cosine similarity |
-| Default model | `qwen2.5:3b` (chat and embeddings) |
 | Multi-document | Up to 5 files per session |
-| Target hardware | ~4 GB VRAM GPU, 8 GB RAM |
+| History cap | 10 messages (configurable per agent profile) |
+| API format | JSON schema v1 (`schema_version: "1.0"`) |
+| Target hardware | 8 GB RAM / 4 GB VRAM minimum for default agent |
 | Persistence | None — state clears on server restart |
 
 ---
@@ -54,191 +59,305 @@ The backend keeps uploaded documents in memory, chunks them with line traceabili
 
 | | What it does |
 |---|---|
+| **Agent Picker** | Select chat model by hardware compatibility; Recommended / Installed / Library tabs |
 | File upload | `.txt`, `.md`, `.pdf`, `.docx` via drag-and-drop or file browser |
 | Multi-document | Load up to 5 files; tab bar, context banner, per-file delete |
-| Retrieval | Embedding search with balanced per-document chunk selection |
-| Comparison mode | Keywords like `compare`, `versus`, `both documents` trigger top-3-per-file retrieval |
-| Chat | SSE token streaming with thinking/streaming session states |
-| Citations | `filename: L12–45` badges; click to jump to cited lines (switches active doc if needed) |
-| Follow-ups | Model appends two suggested questions per reply (parsed into clickable buttons) |
+| Retrieval | Embedding search with per-agent chunk limits |
+| Comparison mode | Keywords like `compare`, `versus`, `both documents` trigger expanded per-file retrieval |
+| Chat | SSE streaming (`chat.token`) with thinking/streaming session states |
+| Citations | `filename: L12–45` badges; click to jump to cited lines |
+| Follow-ups | Structured `chat.suggestions` events (2 questions per reply) |
 | Search | Client-side filter over document lines (minimum 2 characters) |
 | Export | Download full chat history as Markdown |
 | Session reset | Clear button purges all documents and chat history |
-| Telemetry | Live metrics: active document, lines, words, session state |
+| Telemetry | Active document, lines, words, session state, active agent label |
 
-### Document ingestion
+---
 
-- Text extraction via `pypdf` (PDF) and `python-docx` (Word)
-- Line-preserving chunking (~1000 characters per chunk, 200-character overlap)
-- Per-chunk embedding generation through Ollama at upload time
-- Document metrics: character count, word count, line count, chunk count
+## Agent Picker
 
-### Chat interface
+The Agent Picker lets you choose which Ollama model powers chat responses. It does **not** change the embedding model used for document indexing (see [Two-plane architecture](#two-plane-architecture)).
 
-- Copy-to-clipboard on assistant messages
-- Cinematic upload progress with staged ingestion log
-- Ambient particle background and document scan animation
+### UI
+
+Open the picker from the **robot button** in the header (next to upload). The modal has three tabs:
+
+| Tab | Contents |
+|-----|----------|
+| **Recommended** | Top models ranked by hardware fit + installation status |
+| **Installed** | Models already available in local Ollama (`ollama list`) |
+| **Library** | Full curated catalog from `agents/catalog.json` |
+
+Each agent card shows: display name, tier, compatibility badge, RAM/VRAM requirements, history cap, install status, and **Select** or **Pull & Select**.
+
+### Compatibility labels
+
+| Label | Meaning |
+|-------|---------|
+| `compatible` | Meets RAM and VRAM requirements |
+| `marginal` | Close to limits; may run slowly |
+| `incompatible` | Below requirements; select button disabled |
+| `unknown` | GPU VRAM could not be detected; RAM-only check applied |
+
+### Recommendation scoring
+
+Agents are ranked 0–100 using:
+
+| Factor | Weight |
+|--------|--------|
+| Hardware fit (RAM/VRAM) | 45% |
+| Already installed locally | 25% |
+| Tier match (lightweight vs balanced) | 15% |
+| Default model bonus (`qwen2.5:3b`) | 15% |
+
+### Curated chat agents
+
+| Agent | Tier | Min RAM | Min VRAM | History cap | Disk |
+|-------|------|---------|----------|-------------|------|
+| `qwen2.5:3b` | lightweight | 8 GB | 4 GB | 10 | ~2 GB |
+| `gemma2:2b` | lightweight | 8 GB | 4 GB | 8 | ~1.6 GB |
+| `phi3:mini` | lightweight | 8 GB | 4 GB | 10 | ~2.3 GB |
+| `qwen2.5:7b` | balanced | 16 GB | 6 GB | 10 | ~4.7 GB |
+| `llama3.1:8b` | balanced | 16 GB | 8 GB | 10 | ~4.9 GB |
+| `mistral:7b` | balanced | 16 GB | 6 GB | 10 | ~4.4 GB |
+
+Embedding model (not in picker UI): `nomic-embed-text` — used for all document indexing.
+
+### Agent selection flow
+
+```mermaid
+sequenceDiagram
+    participant U as User
+    participant UI as Agent Picker
+    participant API as backend.py
+    participant OL as Ollama
+
+    U->>UI: Open Agent Picker
+    UI->>API: GET /api/agents
+    API->>API: GET /api/system/specs
+    API->>OL: GET /api/tags
+    OL-->>API: installed models
+    API-->>UI: recommended + library + compatibility
+
+    U->>UI: Select llama3.1:8b
+    UI->>API: POST /api/agents/select
+
+    alt model not installed
+        API-->>UI: pull_required
+        UI->>API: POST /api/agents/pull (SSE)
+        API->>OL: POST /api/pull
+        OL-->>API: progress stream
+        API-->>UI: agent.pull.progress
+    end
+
+    API-->>UI: agent selected
+    UI->>UI: Update header label
+```
+
+### Agent switch rules
+
+| Rule | Behavior |
+|------|----------|
+| During streaming | Picker blocked until response completes |
+| Documents loaded | No re-index required (chat plane only) |
+| Incompatible agent | Select disabled with reason |
+| History trim | If new agent has smaller context, oldest messages dropped |
+
+### Pull progress (SSE)
+
+When a model is not installed, **Pull & Select** streams:
+
+| Event `type` | Description |
+|--------------|-------------|
+| `agent.pull.progress` | Download percentage and status text |
+| `agent.pull.done` | Pull completed |
+| `agent.pull.error` | Pull failed |
+| `agent.pull.selected` | Agent activated after successful pull |
+
+---
+
+## JSON API Contract v1
+
+All REST responses and SSE events use a unified envelope:
+
+```json
+{
+  "schema_version": "1.0",
+  "type": "<domain>.<action>",
+  "data": { },
+  "error": null
+}
+```
+
+On failure, `data` is `null` and `error` contains `code`, `message`, and optional `details`.
+
+### Chat SSE events (v1)
+
+| `type` | `data` fields | When sent |
+|--------|---------------|-----------|
+| `chat.metadata` | `agent_id`, `chunks`, `budget` | Before token stream |
+| `chat.token` | `text` | During generation |
+| `chat.suggestions` | `items` (array of 2 strings) | After answer completes |
+| `chat.done` | `agent_id`, `answer_preview` | Stream finished |
+| `chat.error` | — | Inference failure (`error` populated) |
+
+### Context budget object
+
+Included in `chat.metadata` to show how context was allocated:
+
+| Field | Description |
+|-------|-------------|
+| `history_cap` | Max messages allowed for active agent |
+| `history_used` | Messages sent in this request |
+| `chunks_used` | Retrieved chunks sent to model |
+| `max_total_chunks` | Agent profile limit |
+| `estimated_prompt_tokens` | Rough token estimate |
 
 ---
 
 ## Architecture
 
-### System overview
+### System overview (with Agent Picker)
 
 ```mermaid
 graph TB
     subgraph Browser["Browser (static/)"]
         UI["UI shell"]
+        AP["Agent Picker"]
         DV["Document viewer"]
         CP["Chat panel"]
-        Tabs["Document tabs"]
+        CT["contracts.js"]
+        UI --> AP
         UI --> DV
         UI --> CP
-        UI --> Tabs
+        CT --> AP
+        CT --> CP
     end
 
     subgraph Server["FastAPI (backend.py)"]
-        API["REST + SSE"]
-        DS["DocumentState"]
-        CH["chunk_document()"]
-        RET["retrieve_matched_chunks()"]
-        LC["LangChain / ChatOllama"]
-        API --> DS
-        DS --> CH
-        API --> RET
-        API --> LC
+        API["REST + SSE v1"]
+        RS["RuntimeSession"]
+        REG["agents/registry"]
+        BUD["chat/budget"]
+        PROF["system/profiler"]
+        API --> RS
+        API --> REG
+        API --> BUD
+        API --> PROF
     end
 
-    subgraph Local["Local runtime"]
-        OL["Ollama :11434"]
-        CHAT["qwen2.5:3b chat"]
-        EMB["qwen2.5:3b embeddings"]
-        OL --> CHAT
-        OL --> EMB
+    subgraph Local["Ollama :11434"]
+        CHAT["Chat model\n(user-selected)"]
+        EMB["nomic-embed-text"]
     end
 
+    AP -->|GET /api/agents| API
     CP -->|POST /api/chat| API
-    UI -->|POST /api/upload| API
-    UI -->|GET /api/document| API
-    UI -->|POST /api/select| API
-    UI -->|POST /api/delete| API
-    LC -->|astream| OL
-    API -->|embed_documents / embed_query| EMB
-    RET -.->|chunk metadata| CP
+    API -->|astream| CHAT
+    API -->|embed| EMB
 ```
 
-### Upload flow
+### Two-plane architecture
+
+Chat and embedding models are intentionally separated:
 
 ```mermaid
-flowchart LR
-    A[User uploads file] --> B{Valid extension?}
-    B -->|No| C[400 error]
-    B -->|Yes| D{Under 5 doc limit?}
-    D -->|No| E[400 error]
-    D -->|Yes| F[POST /api/upload]
-    F --> G[extract_text_from_bytes]
-    G --> H[chunk_document]
-    H --> I[embed_documents via Ollama]
-    I --> J[Store in DocumentState]
-    J --> K[Return metrics + doc list]
-    K --> L[Render in viewer]
-    L --> M[Enable chat input]
-```
-
-### Chat flow
-
-```mermaid
-sequenceDiagram
-    participant User
-    participant UI as app.js
-    participant API as backend.py
-    participant OL as Ollama
-
-    User->>UI: Submit question
-    UI->>API: POST /api/chat
-
-    API->>API: Detect comparison vs standard mode
-    API->>OL: embed_query(message)
-    OL-->>API: query vector
-    API->>API: Score all chunks (cosine similarity)
-    API->>API: Select balanced chunks per document
-
-    API-->>UI: SSE metadata + chunks
-    UI->>UI: Highlight lines + citation pills
-
-    loop streaming
-        API->>OL: astream
-        OL-->>API: token
-        API-->>UI: SSE token event
+flowchart TB
+    subgraph ChatPlane["Chat plane — Agent Picker"]
+        AP[Agent Profile]
+        LLM[ChatOllama]
+        AP --> LLM
     end
 
-    API-->>UI: DONE
-    UI->>UI: Attach suggestions + copy button
+    subgraph EmbedPlane["Embedding plane — fixed"]
+        EP[nomic-embed-text]
+        EMB[OllamaEmbeddings]
+        EP --> EMB
+    end
+
+    subgraph Index["Document index"]
+        CH[Chunks + vectors]
+    end
+
+    UPLOAD[Upload] --> EMB
+    EMB --> CH
+    CH --> LLM
+    PICKER[User picks agent] --> AP
+```
+
+Switching the chat agent is immediate. Changing the embedding model requires `POST /api/agents/reindex` to re-embed all loaded documents.
+
+### Context budget pipeline
+
+```mermaid
+flowchart TD
+    Q[Chat request] --> P[Load Agent Profile]
+    P --> H[Trim history to cap 10]
+    H --> R[Retrieve chunks per profile limits]
+    R --> B[Apply chunk budget]
+    B --> T{Fits context window?}
+    T -->|No| S[Shrink oldest history]
+    T -->|Yes| BUILD[Build prompt]
+    S --> BUILD
+    BUILD --> STREAM[SSE chat.token stream]
+    STREAM --> SUG[chat.suggestions]
+    SUG --> DONE[chat.done]
 ```
 
 ### Session state
 
 ```mermaid
-stateDiagram-v2
-    [*] --> Idle
-    Idle --> Ingesting: upload
-    Ingesting --> Ready: indexed
-    Ready --> Streaming: chat
-    Streaming --> Ready: done
-    Ready --> Idle: purge
-    Ready --> Ingesting: new upload
-    Ready --> Ready: switch tab
-```
-
-### Context selection (retrieval)
-
-```mermaid
-flowchart TD
-    Q[Query received] --> S{Documents loaded?}
-    S -->|No| E[400 error]
-    S -->|Yes| C{Comparison trigger\ndetected?}
-    C -->|Yes| FS[Top 3 chunks per document]
-    C -->|No| ST[2 chunks per document guaranteed]
-    ST --> PAD[Fill remaining slots from global best scores]
-    FS --> CTX[Build labeled context blocks]
-    PAD --> CTX
-    CTX --> P[Build system prompt]
-    P --> ST2[Stream response via SSE]
-```
-
-### Multi-document data model
-
-```mermaid
 erDiagram
-    DocumentState ||--o{ Document : contains
+    RuntimeSession ||--o{ Document : contains
+    RuntimeSession {
+        string chat_agent_id
+        string embed_agent_id
+        int max_history_messages
+        string active_filename
+    }
     Document {
         string filename
         string content
-        list lines
         list chunks
         dict metrics
     }
-    Chunk {
-        string text
-        int start_line
-        int end_line
-        string filename
-        list embedding
-        float score
+    AgentProfile {
+        string id
+        string ollama_tag
+        int max_history_messages
+        int context_window_tokens
+        float min_ram_gb
+        float min_vram_gb
     }
+    RuntimeSession ||--|| AgentProfile : uses
 ```
 
-`DocumentState` is a module-level singleton. Restarting the server clears all uploaded documents.
+### Ingestion and chat pipelines
 
-### Component responsibilities
+```mermaid
+sequenceDiagram
+    participant U as User
+    participant F as Frontend
+    participant B as Backend
+    participant O as Ollama
 
-| Component | File | Role |
-|-----------|------|------|
-| Web UI | `static/index.html`, `static/styles.css`, `static/app.js` | Split-screen cockpit, upload modal, chat, citations |
-| API server | `backend.py` | Upload, retrieval, chat streaming, static file hosting |
-| CLI | `app.py` | Terminal-based single-document chat |
-| Streamlit UI | `app_ui.py` | Alternative browser UI via Streamlit |
-| Design tokens | `DESIGN.md` | UI color and typography reference (not loaded at runtime) |
+    U->>F: Upload file
+    F->>B: POST /api/upload
+    B->>B: chunk_document()
+    B->>O: embed_documents (nomic-embed-text)
+    B-->>F: document.uploaded
+
+    U->>F: Ask question
+    F->>B: POST /api/chat
+    B->>B: Load agent profile + budget
+    B->>O: embed_query
+    B-->>F: chat.metadata
+    B->>O: astream (selected chat model)
+    loop tokens
+        B-->>F: chat.token
+    end
+    B-->>F: chat.suggestions + chat.done
+```
 
 ---
 
@@ -247,19 +366,20 @@ erDiagram
 | Layer | Tool |
 |-------|------|
 | Backend | Python 3.10+, FastAPI, Uvicorn |
-| LLM | Ollama + `qwen2.5:3b` |
-| Embeddings | OllamaEmbeddings + `qwen2.5:3b` |
+| Chat LLM | Ollama (user-selected via Agent Picker) |
+| Embeddings | OllamaEmbeddings + `nomic-embed-text` |
+| Agent catalog | `agents/catalog.json` + `agents/registry.py` |
+| Hardware detection | `psutil` + `nvidia-smi` (optional) |
+| HTTP client | `httpx` (Ollama tags + model pull) |
 | Orchestration | LangChain (`langchain-ollama`, `langchain-core`) |
-| Similarity | Custom cosine similarity (`math`) |
+| Contracts | `schemas/v1.py` (Pydantic envelopes) |
 | PDF | `pypdf` |
 | DOCX | `python-docx` |
-| Frontend | HTML, CSS, JS (no build step) |
-| Fonts | Inter, JetBrains Mono (Google Fonts CDN) |
-| Icons | Font Awesome 6 (CDN) |
+| Frontend | HTML, CSS, vanilla JS |
+| API parsing | `static/contracts.js` |
+| Agent UI | `static/agent-picker.js` |
 
-Older entry points still in the repo: `app.py` (CLI), `app_ui.py` (Streamlit).
-
-Note: `SimpleTFIDF` is defined in `backend.py` but is not used in the `features` branch retrieval path.
+Legacy entry points: `app.py` (CLI), `app_ui.py` (Streamlit).
 
 ---
 
@@ -267,19 +387,30 @@ Note: `SimpleTFIDF` is defined in `backend.py` but is not used in the `features`
 
 ```
 Local-ollama-powered-ai-assisted-doc-analyzer/
-├── backend.py          # API, chunking, embeddings, retrieval, SSE chat
+├── backend.py              # FastAPI app, routes, chat stream
+├── session.py              # RuntimeSession (documents + agent state)
+├── requirements.txt        # Python dependencies
+├── schemas/
+│   └── v1.py               # JSON v1 envelopes, AgentProfile models
+├── agents/
+│   ├── catalog.json        # Curated agent library
+│   ├── registry.py         # Catalog + Ollama tags merge
+│   ├── compatibility.py    # Hardware scoring
+│   └── pull_jobs.py        # Model pull SSE proxy
+├── system/
+│   └── profiler.py         # RAM / VRAM / OS detection
+├── chat/
+│   └── budget.py           # History trim + context budget
 ├── static/
-│   ├── index.html      # Main web interface
-│   ├── app.js          # Client logic, SSE, UI state
-│   └── styles.css      # Layout and visual design
-├── DESIGN.md           # UI design tokens
-├── app.py              # CLI version (single document)
-├── app_ui.py           # Streamlit version (single document)
-├── sample_doc.txt      # Sample file for CLI demo
-├── test_pricing.txt    # Sample pricing document
-├── test_sample.md      # Sample markdown file
-├── test_sample.docx    # Sample Word document
-├── LICENSE             # MIT License
+│   ├── index.html
+│   ├── app.js
+│   ├── agent-picker.js
+│   ├── contracts.js
+│   └── styles.css
+├── app.py                  # CLI (legacy)
+├── app_ui.py               # Streamlit (legacy)
+├── DESIGN.md
+├── LICENSE
 └── README.md
 ```
 
@@ -293,43 +424,25 @@ Local-ollama-powered-ai-assisted-doc-analyzer/
 |---|---|---|
 | Python | 3.10 | 3.12 |
 | RAM | 8 GB | 16 GB |
-| GPU | Not required | NVIDIA with 4 GB+ VRAM |
-| Disk | ~3 GB free | For Ollama model + venv |
+| GPU | Not required | NVIDIA 4 GB+ VRAM |
+| Disk | ~4 GB free | Chat + embed models + venv |
 | OS | Linux, macOS, Windows 10/11 | |
 
-You also need [Ollama](https://ollama.com) installed and running before chat will work. The web UI loads without it, but inference will fail until Ollama is up.
+Install [Ollama](https://ollama.com) before using chat or the Agent Picker.
 
 ---
 
 ### Step 1 — Install Ollama
 
-Pick your platform and run the commands below.
-
-#### Linux (Ubuntu / Debian)
+#### Linux / macOS
 
 ```bash
 curl -fsSL https://ollama.com/install.sh | sh
 ```
 
-#### macOS
+#### Windows
 
-```bash
-curl -fsSL https://ollama.com/install.sh | sh
-```
-
-Or download the `.dmg` installer from https://ollama.com/download
-
-Or via Homebrew:
-
-```bash
-brew install ollama
-```
-
-#### Windows (PowerShell)
-
-Download and run the installer from https://ollama.com/download
-
-After install, open a new terminal and confirm Ollama is available:
+Download from https://ollama.com/download and install.
 
 ```powershell
 ollama --version
@@ -337,181 +450,87 @@ ollama --version
 
 ---
 
-### Step 2 — Pull the default model
-
-This downloads `qwen2.5:3b` (~2 GB). Run once.
+### Step 2 — Pull required models
 
 ```bash
 ollama pull qwen2.5:3b
+ollama pull nomic-embed-text
 ```
 
-Verify it is listed:
+Optional — pull additional agents before using the picker, or use **Pull & Select** in the UI:
 
 ```bash
-ollama list
+ollama pull llama3.1:8b
+ollama pull mistral:7b
 ```
-
-Start the Ollama service if it is not already running:
-
-```bash
-# Linux / macOS — usually starts automatically after install
-ollama serve
-```
-
-On Windows, Ollama runs as a background app after installation. Check the system tray for the Ollama icon.
 
 ---
 
-### Step 3 — Clone the repository
+### Step 3 — Clone and checkout this branch
 
 ```bash
 git clone https://github.com/Garvit-821/Local-ollama-powered-ai-assisted-doc-analyzer.git
 cd Local-ollama-powered-ai-assisted-doc-analyzer
-git checkout features
+git checkout feature/agent-picker
 ```
 
 ---
 
-### Step 4 — Create a virtual environment
-
-#### Linux / macOS
-
-```bash
-python3 -m venv venv
-source venv/bin/activate
-```
+### Step 4 — Python environment
 
 #### Windows (PowerShell)
 
 ```powershell
 python -m venv venv
 .\venv\Scripts\Activate.ps1
+pip install -r requirements.txt
 ```
-
-#### Windows (Command Prompt)
-
-```cmd
-python -m venv venv
-venv\Scripts\activate.bat
-```
-
-Your prompt should show `(venv)` when the environment is active.
-
----
-
-### Step 5 — Install Python dependencies
-
-Run this inside the activated virtual environment:
-
-```bash
-pip install --upgrade pip
-
-pip install langchain-ollama langchain-core fastapi uvicorn python-multipart python-docx pypdf pydantic
-```
-
-Optional — only if you want to run the older Streamlit UI (`app_ui.py`):
-
-```bash
-pip install streamlit
-```
-
----
-
-### Step 6 — Start the server
 
 #### Linux / macOS
 
 ```bash
-uvicorn backend:app --host 127.0.0.1 --port 8000 --reload
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
 ```
 
-#### Windows (PowerShell or Command Prompt, with venv active)
+---
 
-```powershell
-uvicorn backend:app --host 127.0.0.1 --port 8000 --reload
-```
-
-Alternative if `uvicorn` is not on PATH:
+### Step 5 — Run
 
 ```bash
 python -m uvicorn backend:app --host 127.0.0.1 --port 8000 --reload
 ```
 
-You should see:
-
-```
-INFO:     Uvicorn running on http://127.0.0.1:8000
-INFO:     Application startup complete.
-```
+Open http://127.0.0.1:8000
 
 ---
 
-### Step 7 — Open the app
-
-Go to http://127.0.0.1:8000 in your browser.
-
-Upload `sample_doc.txt` (included in the repo) to test. Ask something like: *"What is the daily calorie target?"*
-
-To test multi-document mode, upload two or more files and ask: *"Compare the diet plans in both documents."*
-
----
-
-### Full install script (copy-paste)
-
-#### Linux / macOS
-
-```bash
-# Ollama
-curl -fsSL https://ollama.com/install.sh | sh
-ollama pull qwen2.5:3b
-
-# Project
-git clone https://github.com/Garvit-821/Local-ollama-powered-ai-assisted-doc-analyzer.git
-cd Local-ollama-powered-ai-assisted-doc-analyzer
-git checkout features
-
-python3 -m venv venv
-source venv/bin/activate
-pip install --upgrade pip
-pip install langchain-ollama langchain-core fastapi uvicorn python-multipart python-docx pypdf pydantic
-
-# Run
-uvicorn backend:app --host 127.0.0.1 --port 8000 --reload
-```
-
-#### Windows (PowerShell)
+### Full install script (Windows PowerShell)
 
 ```powershell
-# Ollama — install manually from https://ollama.com/download first, then:
 ollama pull qwen2.5:3b
+ollama pull nomic-embed-text
 
-# Project
 git clone https://github.com/Garvit-821/Local-ollama-powered-ai-assisted-doc-analyzer.git
 cd Local-ollama-powered-ai-assisted-doc-analyzer
-git checkout features
+git checkout feature/agent-picker
 
 python -m venv venv
 .\venv\Scripts\Activate.ps1
-pip install --upgrade pip
-pip install langchain-ollama langchain-core fastapi uvicorn python-multipart python-docx pypdf pydantic
-
-# Run
-uvicorn backend:app --host 127.0.0.1 --port 8000 --reload
+pip install -r requirements.txt
+python -m uvicorn backend:app --host 127.0.0.1 --port 8000 --reload
 ```
 
 ---
 
-### Verify everything is working
+### Verify
 
 ```bash
-# Ollama API reachable
 curl http://localhost:11434/api/tags
-
-# App server reachable (in a second terminal)
-curl http://127.0.0.1:8000/api/document
+curl http://127.0.0.1:8000/api/system/specs
+curl http://127.0.0.1:8000/api/agents/current
 ```
-
-Expected: Ollama returns a JSON list of models. The app returns `{"status":"empty"}` before any file is uploaded.
 
 ---
 
@@ -519,101 +538,68 @@ Expected: Ollama returns a JSON list of models. The app returns `{"status":"empt
 
 | Problem | Fix |
 |---------|-----|
-| `ollama: command not found` | Install Ollama from https://ollama.com and restart your terminal |
-| `connection refused` in chat | Run `ollama serve` (Linux/macOS) or open the Ollama app (Windows) |
-| `model not found` | Run `ollama pull qwen2.5:3b` |
-| `uvicorn: command not found` | Use `python -m uvicorn backend:app --host 127.0.0.1 --port 8000 --reload` |
-| Port 8000 already in use | Change port: `uvicorn backend:app --host 127.0.0.1 --port 8080 --reload` |
-| PowerShell blocks venv activation | Run `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned` once, then retry |
-| PDF/DOCX upload fails | Confirm `pypdf` and `python-docx` are installed in the active venv |
-| Upload fails at 5 files | Delete a document tab before uploading another file |
-| Empty or garbled PDF text | PDF may be image-based; use a text-based PDF or OCR preprocessing |
-| Slow first response | Ollama cold-starts the model; wait or keep Ollama running in background |
-| Weak multi-doc answers | `qwen2.5:3b` is small; try `qwen2.5:7b` or a dedicated embedding model |
-
----
-
-### Running other versions
-
-**CLI (terminal chatbot):**
-
-```bash
-python app.py
-```
-
-Edit `TARGET_DOC` in `app.py` to point at your file (default: `sample_doc.txt`).
-
-**Streamlit UI (requires `pip install streamlit`):**
-
-```bash
-streamlit run app_ui.py
-```
+| Agent Picker empty | Start Ollama; check `ollama serve` |
+| `INCOMPATIBLE_AGENT` | Choose a lighter model or upgrade RAM/VRAM |
+| `pull_required` | Use Pull & Select or run `ollama pull <model>` |
+| Upload embedding fails | Run `ollama pull nomic-embed-text` |
+| Chat uses wrong model | Check header agent label; re-select in picker |
+| History seems truncated | Cap is 10 messages; larger agents may trim further under budget |
 
 ---
 
 ## Usage
 
-1. Upload a document when the modal opens (or use the upload button in the header).
-2. The file appears in the left panel with line numbers. Upload up to 5 files; each appears as a tab.
-3. The context banner above the chat panel lists all files currently in agent memory.
-4. Type a question in the chat panel on the right.
-5. Relevant lines highlight as the answer streams in. Citation badges link back to those lines.
-6. Click a suggested follow-up question to send it automatically.
-7. Use **Export** to download the chat history as Markdown.
-8. Use **Clear** to purge all documents and chat history.
+1. Start the server and open http://127.0.0.1:8000
+2. Click the **robot button** in the header to open Agent Picker; confirm or change the active agent
+3. Upload one or more documents
+4. Ask questions in the chat panel
+5. Click citation pills to jump to source lines
+6. Use suggested follow-up buttons for the next question
 
-### Supported formats
+### Agent Picker workflow
 
-| Format | Extension | How it's parsed |
-|--------|-----------|-----------------|
-| Plain text | `.txt` | UTF-8 decode |
-| Markdown | `.md`, `.markdown` | UTF-8 decode |
-| PDF | `.pdf` | `pypdf` |
-| Word | `.docx` | `python-docx` |
-
-### Example queries (`sample_doc.txt`)
-
-| Question | What happens |
-|----------|--------------|
-| "What is the daily calorie target?" | Highlights early lines; answer cites calorie range from the document |
-| "What are vegetarian breakfast options?" | Pulls from the breakfast section |
-| "Explain the Tuesday protocol" | Finds relevant diet execution rules |
-
-### Multi-document example queries
-
-| Question | What happens |
-|----------|--------------|
-| "Compare both diet plans" | Comparison mode: top 3 chunks per file sent to model |
-| "What are the differences between the documents?" | Cross-document retrieval with per-file labeling |
-| "Summarize all uploaded files" | Full-scan retrieval across every loaded document |
+```mermaid
+stateDiagram-v2
+    [*] --> DefaultAgent: server starts
+    DefaultAgent --> PickerOpen: user opens picker
+    PickerOpen --> Recommended: default tab
+    PickerOpen --> Installed: view local models
+    PickerOpen --> Library: browse catalog
+    Recommended --> Selecting: click Select
+    Installed --> Selecting
+    Library --> Selecting
+    Selecting --> Pulling: not installed
+    Selecting --> Active: installed
+    Pulling --> Active: pull complete
+    Active --> Chatting: ask questions
+    Chatting --> Active: response done
+    Active --> PickerOpen: switch agent
+```
 
 ### Keyboard shortcuts
 
 | Action | Key |
 |--------|-----|
-| Send | Enter |
+| Send message | Enter |
 | New line | Shift + Enter |
 
 ---
 
 ## Configuration
 
-Values are hardcoded in `backend.py` on the `features` branch:
+Environment variables (optional):
 
-| Setting | Default | Notes |
-|---------|---------|-------|
-| Chat model | `qwen2.5:3b` | `ChatOllama(model=...)` |
-| Embedding model | `qwen2.5:3b` | `OllamaEmbeddings(model=...)` |
-| Temperature | `0.3` | |
-| `num_predict` | `768` | Max output tokens |
-| Chunk size | `1000` chars | `chunk_document()` |
-| Chunk overlap | `200` chars | |
-| Max documents | `5` | Per session |
-| Standard retrieval | `2` chunks/doc | Plus global padding (min 6 total) |
-| Comparison retrieval | `3` chunks/doc | Triggered by comparison keywords |
-| History limit | `6` messages | Last 6 messages sent to model |
-| Host / port | `127.0.0.1:8000` | `uvicorn` args |
-| Ollama URL | `http://localhost:11434` | Default Ollama endpoint |
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `CORTEX_DEFAULT_CHAT_MODEL` | `qwen2.5:3b` | Initial chat agent ID |
+| `CORTEX_EMBED_MODEL` | `nomic-embed-text` | Embedding model |
+| `CORTEX_HISTORY_LIMIT` | `10` | Global history message cap |
+| `CORTEX_MAX_DOCUMENTS` | `5` | Max files per session |
+| `OLLAMA_BASE_URL` | `http://localhost:11434` | Ollama endpoint |
+| `CORTEX_CHUNK_SIZE` | `1000` | Chunk target size (chars) |
+| `CORTEX_CHUNK_OVERLAP` | `200` | Chunk overlap (chars) |
+
+Per-agent settings (temperature, `num_predict`, retrieval limits, history cap) live in `agents/catalog.json`.
 
 ---
 
@@ -621,128 +607,138 @@ Values are hardcoded in `backend.py` on the `features` branch:
 
 Base URL: `http://127.0.0.1:8000`
 
+All JSON responses use the [v1 envelope](#json-api-contract-v1).
+
+### System and agents
+
+| Method | Path | `type` | Description |
+|--------|------|--------|-------------|
+| GET | `/api/system/specs` | `system.specs` | RAM, VRAM, OS, Ollama status |
+| GET | `/api/agents` | `agent.list` | Catalog + recommendations + installed |
+| GET | `/api/agents/current` | `agent.current` | Active chat and embed agents |
+| POST | `/api/agents/select` | `agent.select` | Switch chat agent |
+| POST | `/api/agents/pull` | SSE | Download model from Ollama |
+| GET | `/api/agents/pull/{job_id}` | `agent.pull.status` | Pull job status |
+| POST | `/api/agents/reindex` | `agent.reindex` | Re-embed all documents |
+
+### Documents
+
+| Method | Path | `type` | Description |
+|--------|------|--------|-------------|
+| POST | `/api/upload` | `document.uploaded` | Upload and index file |
+| GET | `/api/document` | `document.state` | Active document + list |
+| POST | `/api/select` | `document.selected` | Set active document tab |
+| POST | `/api/delete` | `document.deleted` | Remove one document |
+| POST | `/api/clear` | `document.cleared` | Clear session |
+
+### Chat
+
 | Method | Path | Description |
 |--------|------|-------------|
-| GET | `/` | Web UI |
-| GET | `/api/document` | Active document content, metrics, and document list |
-| POST | `/api/upload` | Upload file (multipart form, field: `file`) |
-| POST | `/api/select` | Set active document (`{"filename": "..."}`) |
-| POST | `/api/delete` | Remove a document from memory |
-| POST | `/api/clear` | Reset all documents and state |
-| POST | `/api/chat` | Chat (SSE response) |
+| POST | `/api/chat` | SSE stream (`chat.*` events) |
 
-### Chat request body
+### Select agent request
 
 ```json
 {
-  "message": "What is the daily calorie target?",
-  "history": [
-    { "role": "user", "content": "Summarize the document." },
-    { "role": "assistant", "content": "The document describes..." }
-  ]
+  "schema_version": "1.0",
+  "agent_id": "llama3.1:8b"
 }
 ```
 
-### Chat SSE events
-
-```
-data: {"type": "metadata", "chunks": [{"filename": "sample_doc.txt", "start_line": 1, "end_line": 13, "score": 0.85}]}
-
-data: {"type": "token", "text": "The"}
-
-data: {"type": "error", "detail": "..."}
-
-data: [DONE]
-```
-
-| Event `type` | Payload | When sent |
-|--------------|---------|-----------|
-| `metadata` | `{ chunks: [...] }` | Before token stream; used for citations and highlighting |
-| `token` | `{ text: "..." }` | During generation |
-| `error` | `{ detail: "..." }` | On inference failure |
-| `[DONE]` | — | Stream complete |
-
-### Upload response
+### Select agent response (success)
 
 ```json
 {
-  "status": "success",
-  "filename": "report.pdf",
-  "metrics": {
-    "chars": 12400,
-    "words": 2100,
-    "lines": 340,
-    "chunks": 14
+  "schema_version": "1.0",
+  "type": "agent.select",
+  "data": {
+    "status": "ok",
+    "chat_agent_id": "llama3.1:8b",
+    "history_cap": 10
   },
-  "documents": ["report.pdf", "sample_doc.txt"]
+  "error": null
 }
 ```
 
-### Document response (active file)
+### Select agent response (pull required)
 
 ```json
 {
-  "filename": "sample_doc.txt",
-  "content": "Full document text...",
-  "metrics": {
-    "chars": 3200,
-    "words": 540,
-    "lines": 85,
-    "chunks": 4
+  "schema_version": "1.0",
+  "type": "agent.select",
+  "data": {
+    "status": "pull_required",
+    "agent_id": "llama3.1:8b",
+    "ollama_tag": "llama3.1:8b"
   },
-  "documents": ["sample_doc.txt"]
+  "error": null
 }
+```
+
+### Chat SSE example
+
+```
+data: {"schema_version":"1.0","type":"chat.metadata","data":{"agent_id":"qwen2.5:3b","chunks":[...],"budget":{"history_cap":10,"history_used":4,"chunks_used":6,"max_total_chunks":8,"estimated_prompt_tokens":3200}},"error":null}
+
+data: {"schema_version":"1.0","type":"chat.token","data":{"text":"The"},"error":null}
+
+data: {"schema_version":"1.0","type":"chat.suggestions","data":{"items":["What are the macros?","Compare both plans?"]},"error":null}
+
+data: {"schema_version":"1.0","type":"chat.done","data":{"agent_id":"qwen2.5:3b"},"error":null}
 ```
 
 ---
 
 ## Interface Versions
 
-| Version | File(s) | UI | Streaming | Retrieval | Multi-doc | Line citations |
-|---------|---------|-----|-----------|-----------|-----------|----------------|
-| v1 | `app.py` | Terminal | No | Full doc in prompt | No | No |
-| v2 | `app_ui.py` | Streamlit | No | Full doc in prompt | No | No |
-| v3 | `backend.py`, `static/` | Web | Yes | Embeddings + cosine similarity | Yes (up to 5) | Yes |
-
-Use the `features` branch for v3.
-
-Other branches in the repository:
+| Version | Branch | Agent Picker | JSON v1 | Multi-doc |
+|---------|--------|--------------|---------|-----------|
+| v1 CLI | `main` | No | No | No |
+| v2 Streamlit | — | No | No | No |
+| v3 Web | `features` | No | No | Yes |
+| **v4 Web + Picker** | **`feature/agent-picker`** | **Yes** | **Yes** | **Yes** |
 
 | Branch | Description |
 |--------|-------------|
-| `features` | Current multi-document web UI (recommended) |
-| `user-interface` | Earlier single-document TF-IDF web UI |
-| `enhancements` | Experimental hardening and retrieval improvements |
-| `main` | Base repository state |
+| `feature/agent-picker` | Agent Picker, JSON v1, context budget, 10-msg history |
+| `features` | Multi-document web UI (base) |
+| `enhancements` | Retrieval and prompt hardening experiments |
+| `user-interface` | Legacy single-doc TF-IDF UI |
 
 ---
 
 ## Hardware Notes
 
-Written with mid-range laptops in mind (e.g. RTX 3050 4 GB, 8 GB RAM):
-
 ```mermaid
 graph LR
-    subgraph Hardware
-        GPU[4 GB VRAM]
-        RAM[8 GB RAM]
+    subgraph Detected
+        RAM[System RAM]
+        VRAM[GPU VRAM]
     end
-    subgraph Choices
-        M[3B model]
-        H[6-msg history cap]
-        E[Embeddings at upload]
-        C[Chunk retrieval not full-doc]
-        MD[Multi-doc balanced retrieval]
+    subgraph Picker
+        SCORE[Recommendation score]
+        LABEL[Compatibility label]
+        PROFILE[Agent profile limits]
     end
-    Hardware --> Choices
+    subgraph Runtime
+        CHAT[Chat model]
+        CHUNKS[Chunk budget]
+        HIST[History cap 10]
+    end
+    RAM --> SCORE
+    VRAM --> SCORE
+    SCORE --> LABEL
+    LABEL --> PROFILE
+    PROFILE --> CHAT
+    PROFILE --> CHUNKS
+    PROFILE --> HIST
 ```
 
-- `qwen2.5:3b` fits in 4 GB VRAM through Ollama
-- History capped at 6 messages to limit memory growth
-- Embeddings are computed once at upload; queries only embed the user message
-- Retrieval sends matched chunks to the model, not the full document text
-- FastAPI + vanilla JS avoids Streamlit's full-page rerun on every message
-- Multi-document sessions increase memory use proportionally to total chunk count
+- Default agent `qwen2.5:3b` targets 8 GB RAM / 4 GB VRAM
+- Balanced agents (`7b`/`8b`) need 16 GB RAM
+- Embeddings use `nomic-embed-text` (~300 MB); computed once at upload
+- Apple Silicon: unified memory used as VRAM proxy when `nvidia-smi` is unavailable
 
 ---
 
@@ -750,53 +746,36 @@ graph LR
 
 ```mermaid
 flowchart LR
-    DOC[Document] --> MEM[In-memory state]
+    DOC[Documents] --> MEM[RuntimeSession]
+    PICKER[Agent Picker] --> MEM
     MEM --> OL[Ollama localhost]
     OL --> OUT[Browser]
-    CLOUD[External APIs] -.->|not used| DOC
+    CLOUD[Cloud APIs] -.->|not used| DOC
 ```
 
-- No cloud LLM APIs
-- Documents live in process memory until cleared or server stops
-- No authentication — intended for local use on `127.0.0.1`
-- Single global session (not multi-user)
-- Fonts and icons load from CDN on first visit; host them locally if you need full offline UI
-
-This is a local development tool, not something to expose on a public network without additional hardening.
+- All inference stays on your machine
+- Agent selection stored in server memory only
+- No authentication — bind to `127.0.0.1` for local use
 
 ---
 
 ## Trade-offs and Limitations
 
-### Deliberate design choices
-
 | Choice | Benefit | Cost |
 |--------|---------|------|
-| In-memory `DocumentState` | Simple, fast, no database setup | All data lost on server restart; not multi-user |
-| Local Ollama inference | Privacy, no API cost, offline-capable | Quality and speed depend on local hardware |
-| Line-based chunking | Precise citations (line ranges) | Chunks may split semantic units awkwardly |
-| Embedding at upload time | Faster query latency | Longer initial upload for large files |
-| SSE streaming | Responsive UI during generation | More complex client parsing than REST |
-| Vanilla JS frontend | No build step, easy to deploy | No component framework or type checking |
+| Separate chat / embed planes | Stable retrieval when switching chat models | Re-index required to change embed model |
+| Curated catalog | Predictable compatibility metadata | Not every Ollama model listed |
+| Server-side agent state | UI and backend stay in sync | Not multi-user |
+| JSON v1 envelopes | Consistent parsing | Breaking change vs older branches |
+| 10-message history cap | Bounded memory and context | Long threads lose early context |
+| In-memory session | Simple deployment | Lost on server restart |
 
 ### Known limitations
 
-1. **Embedding model**: `qwen2.5:3b` is used for both chat and embeddings. Dedicated embedding models (e.g. `nomic-embed-text`) typically produce better retrieval quality.
-2. **Model size**: `qwen2.5:3b` is lightweight but may produce shallow or incorrect answers on complex multi-document comparisons.
-3. **PDF extraction**: Text quality depends on PDF structure; scanned images without OCR are not supported.
-4. **No persistence**: Uploaded files and chat history are not saved to disk by the backend.
-5. **No authentication**: Open CORS; do not expose on untrusted networks without hardening.
-6. **Single process**: Concurrent uploads and chats share one in-memory state.
-7. **Prompt leakage**: Suggestion formatting instructions may occasionally appear in model output; the frontend strips most of them.
-8. **Unused TF-IDF**: `SimpleTFIDF` is defined but not wired into retrieval on this branch.
-
-### When to use which interface
-
-| Interface | Best for |
-|-----------|----------|
-| Web UI (`backend.py` + `static/`) | Full feature set: multi-doc, citations, streaming, export |
-| Streamlit (`app_ui.py`) | Quick single-file prototyping |
-| CLI (`app.py`) | Scripting, terminal-only environments |
+1. GPU detection may be unavailable on some Windows setups; recommendations fall back to RAM-only.
+2. Token budget estimation is approximate (character count / 4).
+3. `app.py` and `app_ui.py` do not use Agent Picker or JSON v1.
+4. Very large models on low-RAM systems may OOM even when marked marginal.
 
 ---
 
@@ -804,13 +783,15 @@ This is a local development tool, not something to expose on a public network wi
 
 - [x] Multiple documents per session
 - [x] Export chat history
-- [x] Line-level citations with document name
-- [ ] Dedicated embedding model (`nomic-embed-text`)
+- [x] Line-level citations
+- [x] Agent Picker with hardware compatibility
+- [x] JSON API contract v1
+- [x] Dedicated embedding model (`nomic-embed-text`)
+- [x] 10-message history cap
 - [ ] Hybrid TF-IDF + embedding retrieval
-- [ ] Model picker in the UI
-- [ ] Environment-variable configuration
+- [ ] Environment-variable UI for embed model + reindex flow
 - [ ] Docker setup
-- [ ] Tests for chunking, retrieval, and API endpoints
+- [ ] Automated tests for agent compatibility and budget
 - [ ] Mobile layout
 
 ---
@@ -818,48 +799,28 @@ This is a local development tool, not something to expose on a public network wi
 ## Contributing
 
 1. Fork the repository
-2. Branch off `features`: `git checkout -b your-change`
-3. Make the change and test locally
-4. Open a PR against `features`
-
-Keep pull requests small and describe what you changed.
+2. Branch from `feature/agent-picker`: `git checkout -b your-change`
+3. Test Agent Picker, upload, and chat locally
+4. Open a PR against `feature/agent-picker`
 
 ---
 
 ## Acknowledgments
 
-- [Ollama](https://ollama.com) — local model runtime
-- [LangChain](https://www.langchain.com/) — prompt and history handling
+- [Ollama](https://ollama.com) — local model runtime and library
+- [LangChain](https://www.langchain.com/) — prompt orchestration
 - [FastAPI](https://fastapi.tiangolo.com/) — API server
-- [Qwen2.5](https://huggingface.co/Qwen) — default model family
-- UI design tokens in `DESIGN.md` reference Wise's public design language
+- [Nomic Embed](https://ollama.com/library/nomic-embed-text) — embedding model
+- [Qwen2.5](https://huggingface.co/Qwen) — default chat model family
 
 ---
 
 ## License
 
-MIT License
+MIT License — see [LICENSE](LICENSE).
 
 ```
 Copyright (c) 2026 Garvit Prakash
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
 ```
 
 Issues: [GitHub Issues](https://github.com/Garvit-821/Local-ollama-powered-ai-assisted-doc-analyzer/issues)
