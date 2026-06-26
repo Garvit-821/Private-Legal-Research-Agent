@@ -179,6 +179,42 @@ class ChatRequestLegacy(BaseModel):
     history: List[ChatMessageSchema] = []
 
 
+def clean_response(text: str) -> str:
+    fallback_phrase = "I cannot find that in the documents."
+    
+    # Extract suggestions to keep them separate
+    suggestions = []
+    lines = text.splitlines()
+    remaining_lines = []
+    for line in lines:
+        if line.strip().startswith("💡 Suggestion:"):
+            suggestions.append(line)
+        else:
+            remaining_lines.append(line)
+            
+    content_text = "\n".join(remaining_lines).strip()
+    
+    # Check if we have substantial content other than the fallback phrase
+    content_without_fallback = re.sub(re.escape(fallback_phrase), "", content_text, flags=re.IGNORECASE).strip()
+    
+    # Remove any empty lines or markdown formatting to see if there's actual text
+    pure_content = re.sub(r'[*_\-\s#\>\n]', '', content_without_fallback)
+    
+    if len(pure_content) > 0:
+        # We have actual content! Strip the fallback phrase
+        cleaned_content = re.sub(re.escape(fallback_phrase), "", content_text, flags=re.IGNORECASE)
+        # Collapse multiple newlines
+        cleaned_content = re.sub(r'\n{3,}', '\n\n', cleaned_content).strip()
+    else:
+        # No actual content, keep the fallback phrase
+        cleaned_content = fallback_phrase
+        
+    # Re-append suggestions
+    if suggestions:
+        return cleaned_content + "\n\n" + "\n".join(suggestions)
+    return cleaned_content
+
+
 def extract_text_from_bytes(filename: str, contents: bytes) -> str:
     ext = os.path.splitext(filename.lower())[1]
     if ext == ".txt":
@@ -423,8 +459,21 @@ async def upload_document(file: UploadFile = File(...)):
         lines = text_content.splitlines()
         chunks = chunk_document(text_content)
         for c in chunks:
+<<<<<<< feature-hallucination-fix
+            c["filename"] = file.filename
+            
+        # Generate embeddings in batch via Ollama
+        if chunks:
+            texts = [c["text"] for c in chunks]
+            embeddings_list = await embeddings.aembed_documents(texts)
+            for chunk, emb in zip(chunks, embeddings_list):
+                chunk["embedding"] = emb
+        
+        # Generate metrics
+=======
             c["filename"] = filename
         _embed_chunks(chunks)
+>>>>>>> features
         metrics = {
             "chars": len(text_content),
             "words": len(text_content.split()),
@@ -500,10 +549,139 @@ async def clear_document():
 async def chat_interaction(payload: ChatRequestLegacy):
     if not runtime.documents:
         raise HTTPException(status_code=400, detail="No documents have been uploaded yet.")
+<<<<<<< feature-hallucination-fix
+        
+    user_query = payload.message
+    
+    try:
+        num_docs = len(doc_state.documents)
+        query_lower = user_query.lower()
+
+        # 1. Determine if query needs a broad, cross-document scan.
+        # This includes comparisons, section-specific queries, financial queries, etc.
+        COMPARISON_TRIGGERS = {
+            "compare", "comparison", "differentiate", "difference", "differences",
+            "contrast", "versus", "vs", "both", "all documents", "all files",
+            "summarize all", "overview", "which is better", "what are the differences",
+            "how do they differ", "tell me about both", "explain both", "analyze both",
+            "review both", "section", "section 1", "section 2", "section 3", "section 4",
+            "revenue", "financial", "total", "income", "fees", "loss", "profit",
+            "ancillary", "platform", "summarize", "summary", "across",
+        }
+        is_comparison = any(trigger in query_lower for trigger in COMPARISON_TRIGGERS)
+
+        # 2. Smart context strategy:
+        # For small document sets (combined raw text under 8000 chars), inject the
+        # FULL raw text of every document directly. This completely bypasses
+        # chunk retrieval scoring errors and guarantees the model sees every line.
+        total_raw_chars = sum(len(doc["content"]) for doc in doc_state.documents.values())
+        FULL_DOC_THRESHOLD = 8000  # chars
+        use_full_docs = total_raw_chars <= FULL_DOC_THRESHOLD
+
+        matched_chunks: List[Dict[str, Any]] = []
+
+        if use_full_docs:
+            # Inject complete document text with per-line file annotations.
+            # This makes it impossible for the model to lose track of which
+            # file a fact belongs to, even within long passages.
+            context_parts = []
+            for fname, doc in doc_state.documents.items():
+                annotated_lines = []
+                for line in doc["content"].splitlines():
+                    if line.strip():
+                        annotated_lines.append(f"[{fname}] {line}")
+                    else:
+                        annotated_lines.append("")
+                annotated_content = "\n".join(annotated_lines)
+                context_parts.append(
+                    f"=== FULL DOCUMENT: {fname} ===\n{annotated_content}\n=== END OF DOCUMENT: {fname} ==="
+                )
+                # Also provide chunk metadata for frontend line-highlight
+                for chunk in doc["chunks"]:
+                    c = {k: v for k, v in chunk.items() if k != "embedding"}
+                    matched_chunks.append(c)
+            context_str = "\n\n".join(context_parts)
+        elif is_comparison:
+            # Full-scan retrieval: take top 5 chunks per document
+            query_emb = await embeddings.aembed_query(user_query)
+            SCAN_PER_DOC = 5
+            for fname, doc in doc_state.documents.items():
+                doc_scored = []
+                for chunk in doc["chunks"]:
+                    if "embedding" not in chunk:
+                        continue
+                    sim = cosine_similarity(query_emb, chunk["embedding"])
+                    c = chunk.copy()
+                    c["score"] = round(sim, 4)
+                    del c["embedding"]
+                    doc_scored.append(c)
+                doc_scored.sort(key=lambda x: x["score"], reverse=True)
+                matched_chunks.extend(doc_scored[:SCAN_PER_DOC])
+            matched_chunks.sort(key=lambda x: x["score"], reverse=True)
+
+            context_parts = []
+            for c in matched_chunks:
+                context_parts.append(
+                    f"--- FILE: {c['filename']} (Lines {c['start_line']}-{c['end_line']}) ---\n{c['text']}"
+                )
+            context_str = "\n\n".join(context_parts)
+        else:
+            # Standard balanced retrieval
+            query_emb = await embeddings.aembed_query(user_query)
+            SLOTS_PER_DOC = 2
+            TOTAL_SLOTS = max(num_docs * SLOTS_PER_DOC, 6)
+
+            per_doc_best: Dict[str, List[Dict[str, Any]]] = {}
+            all_scored: List[Dict[str, Any]] = []
+
+            for fname, doc in doc_state.documents.items():
+                doc_scored = []
+                for chunk in doc["chunks"]:
+                    if "embedding" not in chunk:
+                        continue
+                    sim = cosine_similarity(query_emb, chunk["embedding"])
+                    c = chunk.copy()
+                    c["score"] = round(sim, 4)
+                    del c["embedding"]
+                    doc_scored.append(c)
+                    all_scored.append(c)
+                doc_scored.sort(key=lambda x: x["score"], reverse=True)
+                per_doc_best[fname] = doc_scored[:SLOTS_PER_DOC]
+
+            guaranteed: List[Dict[str, Any]] = []
+            seen_ids: set = set()
+            for fname, chunks in per_doc_best.items():
+                for c in chunks:
+                    key = (c["filename"], c["start_line"])
+                    if key not in seen_ids:
+                        guaranteed.append(c)
+                        seen_ids.add(key)
+
+            all_scored.sort(key=lambda x: x["score"], reverse=True)
+            for c in all_scored:
+                if len(guaranteed) >= TOTAL_SLOTS:
+                    break
+                key = (c["filename"], c["start_line"])
+                if key not in seen_ids:
+                    guaranteed.append(c)
+                    seen_ids.add(key)
+
+            matched_chunks = sorted(guaranteed, key=lambda x: x["score"], reverse=True)
+
+            context_parts = []
+            for c in matched_chunks:
+                context_parts.append(
+                    f"--- FILE: {c['filename']} (Lines {c['start_line']}-{c['end_line']}) ---\n{c['text']}"
+                )
+            context_str = "\n\n".join(context_parts)
+
+        print(f"[RETRIEVAL] use_full_docs={use_full_docs}, total_raw_chars={total_raw_chars}, chunks_sent={len(matched_chunks)}")
+=======
 
     profile = get_chat_profile(runtime.chat_agent_id)
     if not profile:
         raise HTTPException(status_code=500, detail="Active chat agent profile is not configured.")
+>>>>>>> features
 
     user_query = payload.message.strip()
     if not user_query:
@@ -528,6 +706,38 @@ async def chat_interaction(payload: ChatRequestLegacy):
     doc_names = ", ".join(runtime.documents.keys())
     num_docs = len(runtime.documents)
     system_prompt = (
+<<<<<<< feature-hallucination-fix
+        f"You are an expert AI Document Analyst. You are analyzing {num_docs} document(s): {doc_names}.\n"
+        f"The FULL content of every document is provided below. Read each document carefully before answering.\n\n"
+        "--- BEGIN DOCUMENT CONTEXT ---\n"
+        f"{context_str}\n"
+        "--- END DOCUMENT CONTEXT ---\n\n"
+        "CRITICAL RULES — you MUST follow these exactly:\n"
+        "1. Each document section is clearly labeled with === FULL DOCUMENT: [filename] ===. Read EACH document separately and carefully.\n"
+        "2. ATTRIBUTION IS MANDATORY: For every single fact or number you state, you MUST prefix it with the EXACT filename it came from (e.g. 'According to sample-#1.txt, ...'). Cross-check the label before attributing.\n"
+        "3. NEVER copy the same content for two different files. If two documents have different values for the same metric, report them separately with correct file labels.\n"
+        "4. When comparing documents, structure your response as clear per-file paragraphs. Do not merge data from different files into one paragraph.\n"
+        "5. If a piece of information exists in one document but NOT in another, report what you found and state which file does not contain that information.\n"
+        "6. Only use information explicitly written in the documents. Do not invent, estimate, or extrapolate any data.\n"
+        "7. If the requested information is completely absent from ALL documents, reply with exactly: \"I cannot find that in the documents.\"\n"
+        "8. End every response with exactly 2 follow-up questions on new lines, each starting with \"💡 Suggestion: \". Do not add headers."
+    )
+
+    # 7. Assemble chat history (trim to last 4 turns to keep context window free)
+    chat_history = []
+    trimmed_history = payload.history[-4:]
+    for msg in trimmed_history:
+        if msg.role == "user":
+            chat_history.append(HumanMessage(content=msg.content))
+        elif msg.role == "assistant":
+            chat_history.append(AIMessage(content=msg.content))
+
+    # Create LangChain template
+    prompt_template = ChatPromptTemplate.from_messages([
+        SystemMessage(content=system_prompt),
+        MessagesPlaceholder(variable_name="chat_history"),
+        ("human", "{user_input}")
+=======
         f"You are a strict, fact-based AI Document Assistant analyzing {num_docs} document(s): {doc_names}.\n"
         f"Active agent: {profile.display_name}.\n\n"
         "--- DOCUMENT CONTEXT START ---\n"
@@ -547,10 +757,55 @@ async def chat_interaction(payload: ChatRequestLegacy):
         SystemMessage(content=system_prompt),
         MessagesPlaceholder(variable_name="chat_history"),
         ("human", "{user_input}"),
+>>>>>>> features
     ])
 
     async def response_generator():
         try:
+<<<<<<< feature-hallucination-fix
+            # Initialize Ollama model
+            llm = ChatOllama(
+                model="qwen2.5:3b",
+                temperature=0.1,
+                num_predict=768,
+                num_ctx=8192
+            )
+            
+            formatted_prompt = prompt_template.format_messages(
+                chat_history=chat_history,
+                user_input=user_query
+            )
+            
+            # Send matched chunks metadata first so the frontend can immediately highlight lines
+            yield f"data: {json.dumps({'type': 'metadata', 'chunks': matched_chunks})}\n\n"
+            
+            # Gather the full response
+            full_response = ""
+            async for chunk in llm.astream(formatted_prompt):
+                if chunk.content:
+                    full_response += chunk.content
+            
+            # Clean the response using our helper
+            print("--- RAW FULL RESPONSE FROM OLLAMA ---")
+            print(repr(full_response))
+            print("-------------------------------------")
+            cleaned_response = clean_response(full_response)
+            
+            # Stream the cleaned response in chunks to simulate streaming
+            import asyncio
+            chunk_size = 8
+            for i in range(0, len(cleaned_response), chunk_size):
+                sub_chunk = cleaned_response[i:i+chunk_size]
+                yield f"data: {json.dumps({'type': 'token', 'text': sub_chunk})}\n\n"
+                await asyncio.sleep(0.01)
+                
+            yield "data: [DONE]\n\n"
+            
+        except Exception as e:
+            # Send error details via stream
+            yield f"data: {json.dumps({'type': 'error', 'detail': str(e)})}\n\n"
+            yield "data: [DONE]\n\n"
+=======
             llm = get_chat_llm(profile)
             formatted_prompt = prompt_template.format_messages(chat_history=chat_history, user_input=user_query)
 
@@ -605,6 +860,7 @@ async def chat_interaction(payload: ChatRequestLegacy):
             yield sse_line("chat.done", {"agent_id": profile.id, "answer_preview": answer[:200]})
         except Exception as exc:
             yield sse_line("chat.error", error=ApiError(code="INFERENCE_FAILED", message=str(exc)))
+>>>>>>> features
 
     return StreamingResponse(response_generator(), media_type="text/event-stream")
 

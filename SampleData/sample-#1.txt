@@ -1,0 +1,87 @@
+================================================================================
+OMNIFETCH UNLISTED / PRE-IPO FINANCIAL & OPERATIONAL MATRIX (FY 2025-2026)
+Document ID: OF-QC-FY26-DRAFT4
+Classification: STRICTLY CONFIDENTIAL - INVESTOR RELATIONS DECK
+================================================================================
+ 
+SECTION 1: HYPERLOCAL LEDGER & REVENUE AGGREGATION
+--------------------------------------------------------------------------------
+OmniFetch Private Limited (the "Company") concluded its FY26 comprehensive financial 
+audit demonstrating a remarkable 145% expansion in Gross Merchandise Value (GMV), 
+underpinned by aggressive penetration into Tier-1 cluster hubs and the rollout of 
+automated micro-fulfillment centers.
+ 
+Key Operational Financials (INR Crores):
+• Total Revenue from Operations: ₹21,430 Cr
+• Marketplace Commission Fees: ₹2,105 Cr
+• Delivery Premium & Priority Surge: ₹842 Cr
+• Treasury Yield & Non-Operating Assets: ₹412 Cr
+• Consolidated Net Annual Loss: ₹6,740 Cr
+ 
+Auditor Inconsistency Flag (Working Capital Delta):
+Section 1 documentation reflects a liquid cash and cash equivalents position of 
+₹1,240 Crore held in current accounts. However, cross-examination of Section 4 
+(Vendor Payables & Trade Creditors) exposes an unhedged, deferred supplier clearing 
+milestone totaling ₹1,985 Crore due to automated cold-storage fulfillment partners 
+by early Q2. This exposes a net unencumbered capital deficit of ₹745 Crore, 
+leaving the operational runway structurally dependent on the successful completion 
+of the proposed ₹9,500 Crore pre-IPO domestic capital raise.
+ 
+ 
+SECTION 2: AUTOMATED MICRO-FULFILLMENT & COMPUTE INFRASTRUCTURE
+--------------------------------------------------------------------------------
+The fulfillment automation engineering team has finalized the migration of its automated 
+bin-sorting and multi-agent pathfinding (MAPF) protocols to an on-premise Kubernetes cluster.
+ 
+Hardware Ingestion Limitations & Thresholds:
+Each automated micro-fulfillment warehouse utilizes edge-computing robotic control units 
+restricted to a rigid 8.0 GB system RAM allocation for processing real-time sorting loops.
+ 
+• Stable Node Profile: The primary pathfinding agent running the 1.5B parameter localized 
+  spatial collision avoidance grid executes continuously at exactly 4.8 GB RAM. 
+  This preserves 3.2 GB of headroom to absorb sudden transactional bursts or bulk SKU 
+  inwarding operations without thread lockouts or sensor latency spikes.
+  
+• Heap Allocation Crash: During a peak-hour traffic simulation, engineers deployed an 
+  un-optimized, non-indexed 5B parameter demand-forecasting model requiring a minimum 
+  of 9.4 GB RAM. The process instantly exhausted the available hardware boundaries, 
+  triggering an immediate Out-of-Memory (OOM) SIGKILL termination. This caused a complete 
+  telemetry blackout across 32 robotic sorting tracks, freezing dispatches for 5.5 hours.
+ 
+ 
+SECTION 3: PIPELINE RELEASES & DEVELOPMENT TIMELINE
+--------------------------------------------------------------------------------
+The core infrastructure development team is modularizing its fulfillment stack into a 
+decentralized crate ecosystem, allowing proprietary third-party fleet operators to 
+interact directly with localized regional routing APIs.
+ 
+Development Roadmap Milestones:
+1. November 12, 2026: Public release of the `@omnifetch/fleet-ctx` module to enable 
+   open integration with programmatic third-party courier APIs.
+2. December 22, 2026: Strict deployment of Type-Safe GraphQL API schemas to sanitize 
+   and structure inbound B2B bulk-merchant supply logs.
+3. February 05, 2027: Integration of an edge-optimized computer vision model layer 
+   to cross-verify printed packing manifests and item counts completely offline.
+4. April 18, 2027: Rollout of dynamic multi-tenant file system routing to catalog and 
+   partition localized micro-fulfillment delivery telemetry logs.
+ 
+ 
+SECTION 4: CAPITAL BURDEN & REGULATORY RISK PROFILES
+--------------------------------------------------------------------------------
+Risk Item Alpha (The Cost of Fleet Expansion):
+Total administrative and operating overhead ballooned by 84% to ₹28,170 Crore. 
+Last-mile courier payout structures and dark-store infrastructure upkeep alone 
+accounted for ₹4,210 Crore. In the event of aggressive market-share acquisition campaigns 
+by entrenched legacy competitors, OmniFetch may be forced to escalate driver retention 
+bonuses, potentially delaying overall corporate EBITDA breakeven by an estimated 1,800 basis points.
+ 
+Risk Item Beta (Sovereign Data Storage Residency):
+Compliance counsel notes that while the incoming `@omnifetch/fleet-ctx` engine executes 
+entirely within isolated local execution environments, any downstream developer configuration 
+that incorrectly passes unhashed geolocation vectors to public global geocoding services 
+will violate regional data privacy frameworks, carrying severe regulatory sanctions 
+amounting to up to 5% of global aggregate turnover.
+ 
+================================================================================
+END OF AUDIT REPORT — DOCUMENT ID: OF-QC-FY26-DRAFT4
+================================================================================
