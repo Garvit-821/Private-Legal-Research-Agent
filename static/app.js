@@ -10,8 +10,12 @@ document.addEventListener('DOMContentLoaded', () => {
         documentLines: [],
         chatHistory: [],
         isThinking: false,
-        isStreaming: false
+        isStreaming: false,
+        selectedChatModel: 'qwen2.5:3b',
+        historyCap: 10,
     };
+
+    const apiJson = (url, options) => CortexContracts.apiJson(url, options);
 
     // DOM
     const uploadModal = document.getElementById('uploadModal');
@@ -226,8 +230,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // ==========================================================================
     async function checkActiveDocument() {
         try {
-            const res = await fetch('/api/document');
-            const data = await res.json();
+            const data = await apiJson('/api/document');
 
             state.documents = data.documents || [];
             if (data.filename) {
@@ -364,17 +367,15 @@ document.addEventListener('DOMContentLoaded', () => {
 
     async function selectDocument(docName) {
         try {
-            const res = await fetch('/api/select', {
+            const data = await apiJson('/api/select', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ filename: docName })
             });
-            const data = await res.json();
             if (data.status === 'success') {
                 state.filename = data.active_filename;
-                
-                const docRes = await fetch('/api/document');
-                const docData = await docRes.json();
+
+                const docData = await apiJson('/api/document');
                 state.documentLines = docData.content.split('\n');
                 state.metrics = docData.metrics;
 
@@ -393,19 +394,17 @@ document.addEventListener('DOMContentLoaded', () => {
     async function deleteDocument(docName) {
         if (!confirm(`Are you sure you want to delete "${docName}" from memory?`)) return;
         try {
-            const res = await fetch('/api/delete', {
+            const data = await apiJson('/api/delete', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ filename: docName })
             });
-            const data = await res.json();
             if (data.status === 'success') {
                 state.documents = data.documents;
                 state.filename = data.active_filename;
 
                 if (state.filename) {
-                    const docRes = await fetch('/api/document');
-                    const docData = await docRes.json();
+                    const docData = await apiJson('/api/document');
                     state.documentLines = docData.content.split('\n');
                     state.metrics = docData.metrics;
                     renderDocument(docData.content, true);
@@ -527,11 +526,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
             const response = await fetch('/api/upload', { method: 'POST', body: formData });
             if (!response.ok) {
-                const err = await response.json();
-                throw new Error(err.detail || 'Upload failed');
+                const errBody = await response.json();
+                const unwrapped = CortexContracts.unwrapEnvelope(errBody);
+                throw new Error(unwrapped?.detail || errBody.detail || 'Upload failed');
             }
 
-            const data = await response.json();
+            const data = CortexContracts.unwrapEnvelope(await response.json());
 
             setProgress(65, 'Parsing document structure...', 'PARSING');
             addLog(`parsed ${data.metrics?.lines || '?'} lines`);
@@ -554,8 +554,7 @@ document.addEventListener('DOMContentLoaded', () => {
             state.metrics = data.metrics;
             state.documents = data.documents;
 
-            const docRes = await fetch('/api/document');
-            const docData = await docRes.json();
+            const docData = await apiJson('/api/document');
             state.documentLines = docData.content.split('\n');
 
             stopLoaderParticles();
@@ -674,17 +673,15 @@ document.addEventListener('DOMContentLoaded', () => {
         if (targetFilename && targetFilename !== state.filename) {
             showToast(`Switching context to ${targetFilename}...`, 'info');
             try {
-                const res = await fetch('/api/select', {
+                const data = await apiJson('/api/select', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ filename: targetFilename })
                 });
-                const data = await res.json();
                 if (data.status === 'success') {
                     state.filename = targetFilename;
-                    
-                    const docRes = await fetch('/api/document');
-                    const docData = await docRes.json();
+
+                    const docData = await apiJson('/api/document');
                     state.documentLines = docData.content.split('\n');
                     state.metrics = docData.metrics;
                     
@@ -777,6 +774,8 @@ document.addEventListener('DOMContentLoaded', () => {
             const decoder = new TextDecoder();
             let rawBuffer = '';
             let generatedAnswer = '';
+            let displayAnswer = '';
+            let parsedSuggestions = [];
             let retrievedChunks = [];
             let firstToken = true;
 
@@ -798,34 +797,60 @@ document.addEventListener('DOMContentLoaded', () => {
                     if (dataStr === '[DONE]') break;
 
                     try {
-                        const data = JSON.parse(dataStr);
-                        if (data.type === 'metadata') {
-                            retrievedChunks = data.chunks;
+                        const evt = CortexContracts.parseSsePayload(dataStr);
+                        const type = evt.type;
+                        const payload = evt.data || {};
+
+                        if (type === 'chat.metadata') {
+                            retrievedChunks = payload.chunks || [];
                             highlightDocumentLines(retrievedChunks);
                             addCitationsToBubble(aiBubble, retrievedChunks);
-                        } else if (data.type === 'token') {
+                        } else if (type === 'chat.token') {
                             if (firstToken) {
                                 aiBubble.querySelector('.bubble-avatar').classList.remove('thinking-pulse');
                                 firstToken = false;
                             }
-                            generatedAnswer += data.text;
-                            renderAIResponse(textElement, generatedAnswer, true);
+                            generatedAnswer += payload.text || '';
+                            displayAnswer = stripAnswerBody(generatedAnswer, messageText);
+                            renderAIResponse(textElement, displayAnswer, true, messageText);
                             chatLog.scrollTop = chatLog.scrollHeight;
-                        } else if (data.type === 'error') {
-                            throw new Error(data.detail);
+                        } else if (type === 'chat.suggestions') {
+                            parsedSuggestions = Array.isArray(payload.items) ? payload.items.slice(0, 2) : [];
+                        } else if (type === 'chat.error') {
+                            throw new Error(evt.error?.message || 'Inference error');
+                        } else if (type === 'chat.done') {
+                            break;
                         }
-                    } catch (_) { /* partial SSE chunk */ }
+                    } catch (parseErr) {
+                        if (parseErr instanceof SyntaxError) continue;
+                        throw parseErr;
+                    }
                 }
             }
 
-            renderAIResponse(textElement, generatedAnswer, false);
+            displayAnswer = stripAnswerBody(generatedAnswer, messageText);
+            if (!parsedSuggestions.length) {
+                parsedSuggestions = extractSuggestionsFromText(generatedAnswer);
+            }
+            if (!displayAnswer.trim()) {
+                displayAnswer = 'I could not generate a clear answer from the loaded documents.';
+            }
+
+            renderAIResponse(textElement, displayAnswer, false, messageText);
             aiBubble.classList.remove('streaming');
 
             state.chatHistory.push({ role: 'user', content: messageText });
-            state.chatHistory.push({ role: 'assistant', content: generatedAnswer });
+            state.chatHistory.push({ role: 'assistant', content: displayAnswer });
+            if (state.chatHistory.length > state.historyCap) {
+                state.chatHistory = state.chatHistory.slice(-state.historyCap);
+            }
 
-            attachSuggestions(aiBubble, generatedAnswer);
-            addCopyButton(aiBubble, generatedAnswer);
+            if (parsedSuggestions.length) {
+                attachSuggestionsFromList(aiBubble, parsedSuggestions);
+            } else {
+                attachSuggestions(aiBubble, generatedAnswer);
+            }
+            addCopyButton(aiBubble, displayAnswer);
 
             setAgentStatus('', 'Ready');
             setSessionState('ACTIVE', `${state.chatHistory.length / 2 | 0} exchanges`, 'delta-pos');
@@ -900,22 +925,44 @@ document.addEventListener('DOMContentLoaded', () => {
         return bubble;
     }
 
-    function renderAIResponse(element, markdownText, streaming = false) {
-        let cleaned = markdownText;
-        cleaned = cleaned.replace(/💡\s*Suggestion:\s*(.+)$/gm, '');
-        cleaned = cleaned.replace(/Suggested Follow-up Questions:?\s*$/i, '');
-        cleaned = cleaned.replace(/💡\s*Suggestions:?\s*$/i, '');
-        
-        // Sometimes the model outputs a header for the questions but no other text.
-        cleaned = cleaned.replace(/\*\*Follow-Up Questions:?\*\*\s*/gi, '');
-        cleaned = cleaned.replace(/Follow-Up Questions:?\s*/gi, '');
+    function stripAnswerBody(text, userQuery = '') {
+        if (!text) return '';
+        let working = text;
+        const delimiterIdx = working.indexOf('\n---');
+        if (delimiterIdx !== -1) working = working.slice(0, delimiterIdx);
 
-        cleaned = cleaned.trim();
-        
-        // If the model refused or only outputted suggestions, avoid a hollow empty message
-        if (cleaned.length === 0) {
-            cleaned = "I cannot find that information in the documents.";
+        if (userQuery) {
+            const query = userQuery.trim();
+            const normQuery = query.toLowerCase().replace(/\s+/g, ' ').replace(/\?+$/, '').trim();
+            const lines = working.split('\n');
+            while (lines.length) {
+                const normLine = lines[0].trim().toLowerCase().replace(/\s+/g, ' ').replace(/\?+$/, '').trim();
+                if (normLine === normQuery) { lines.shift(); continue; }
+                break;
+            }
+            working = lines.join('\n').trim();
         }
+
+        const leakPatterns = [/^(?:SUGGESTION:|💡\s*Suggestion:)/i, /here are two suggestions/i];
+        working = working.split('\n').filter(line => !leakPatterns.some(p => p.test(line.trim()))).join('\n').trim();
+        return working;
+    }
+
+    function extractSuggestionsFromText(fullText) {
+        const suggestions = [];
+        fullText.split('\n').forEach(line => {
+            const match = line.trim().match(/^(?:SUGGESTION:|💡\s*Suggestion:)\s*(.+)$/i);
+            if (match) {
+                const question = match[1].trim().replace(/^['"]|['"]$/g, '');
+                if (question) suggestions.push(question);
+            }
+        });
+        return suggestions.slice(0, 2);
+    }
+
+    function renderAIResponse(element, markdownText, streaming = false, userQuery = '') {
+        let cleaned = stripAnswerBody(markdownText, userQuery);
+        if (!cleaned) cleaned = 'I cannot find that information in the documents.';
 
         let html = escapeHTML(cleaned);
         html = html.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
@@ -972,20 +1019,9 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    function attachSuggestions(aiBubble, fullText) {
+    function attachSuggestionsFromList(aiBubble, suggestions) {
+        if (!suggestions?.length) return;
         const wrapper = aiBubble.querySelector('.bubble-content-wrapper');
-        const suggestions = [];
-
-        fullText.split('\n').forEach(line => {
-            if (line.includes('💡 Suggestion:')) {
-                let text = line.replace(/.*💡\s*Suggestion:\s*/, '').trim();
-                text = text.replace(/\*\*/g, '').replace(/\*/g, '');
-                if (text) suggestions.push(text);
-            }
-        });
-
-        if (!suggestions.length) return;
-
         const box = document.createElement('div');
         box.className = 'suggestions-box';
         box.innerHTML = '<div class="suggestions-label">Suggested follow-ups</div>';
@@ -1004,6 +1040,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
         wrapper.appendChild(box);
         chatLog.scrollTop = chatLog.scrollHeight;
+    }
+
+    function attachSuggestions(aiBubble, fullText) {
+        const suggestions = extractSuggestionsFromText(fullText);
+        if (!suggestions.length) return;
+        attachSuggestionsFromList(aiBubble, suggestions);
     }
 
     // ==========================================================================
@@ -1089,4 +1131,6 @@ document.addEventListener('DOMContentLoaded', () => {
             showToast('Failed to clear session.', 'error');
         }
     });
+
+    window.CortexApp = { state, showToast };
 });
