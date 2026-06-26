@@ -467,12 +467,12 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     dropzone.addEventListener('drop', e => {
-        if (e.dataTransfer.files.length) handleFileUpload(e.dataTransfer.files[0]);
+        if (e.dataTransfer.files.length) handleFileUpload(e.dataTransfer.files);
     });
 
     btnSelectFile.addEventListener('click', () => fileInput.click());
     fileInput.addEventListener('change', () => {
-        if (fileInput.files.length) handleFileUpload(fileInput.files[0]);
+        if (fileInput.files.length) handleFileUpload(fileInput.files);
     });
 
     function setProgress(pct, status, title) {
@@ -482,10 +482,19 @@ document.addEventListener('DOMContentLoaded', () => {
         if (title) loaderTitle.textContent = title;
     }
 
-    async function handleFileUpload(file) {
+    async function handleFileUpload(fileOrFiles) {
+        const fileList = Array.isArray(fileOrFiles) ? fileOrFiles : (fileOrFiles instanceof FileList ? Array.from(fileOrFiles) : [fileOrFiles]);
+        
         const allowed = ['.txt', '.pdf', '.docx', '.md', '.markdown'];
-        if (!allowed.some(ext => file.name.toLowerCase().endsWith(ext))) {
+        const validFiles = fileList.filter(file => allowed.some(ext => file.name.toLowerCase().endsWith(ext)));
+        
+        if (validFiles.length === 0) {
             showToast('Supported formats: .pdf, .docx, .md, .txt', 'warn');
+            return;
+        }
+
+        if (state.documents.length + validFiles.length > 5) {
+            showToast(`Maximum limit is 5 documents. You can only upload ${5 - state.documents.length} more.`, 'warn');
             return;
         }
 
@@ -505,77 +514,81 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         const delay = ms => new Promise(r => setTimeout(r, ms));
+        
+        let lastDocData = null;
 
-        setProgress(5, 'Establishing connection...', 'INITIALIZING CORTEX');
-        addLog('cortex.init()');
-        await delay(200);
+        setProgress(10, `Preparing ${validFiles.length} file(s)...`, 'INITIALIZING CORTEX');
+        addLog(`cortex.batch_init(${validFiles.length})`);
+        await delay(300);
 
-        setProgress(15, `Reading ${file.name}...`, 'READING DOCUMENT');
-        addLog(`open("${file.name}")`);
-        await delay(250);
-
-        addLog('streaming bytes to local engine...');
         setProgress(30, 'Uploading to local engine...', 'UPLOADING');
-        await delay(200);
+        addLog('streaming bytes in parallel...');
 
-        const formData = new FormData();
-        formData.append('file', file);
-
-        try {
-            setProgress(45, 'Processing file...', 'PROCESSING');
-            addLog('extract_text()');
-
+        const uploadPromises = validFiles.map(async (file) => {
+            const formData = new FormData();
+            formData.append('file', file);
+            
+            addLog(`[${file.name}] extract_text()`);
+            
             const response = await fetch('/api/upload', { method: 'POST', body: formData });
             if (!response.ok) {
                 const err = await response.json();
                 throw new Error(err.detail || 'Upload failed');
             }
-
+            
             const data = await response.json();
+            addLog(`[${file.name}] parsed ${data.metrics?.lines || '?'} lines`);
+            addLog(`[${file.name}] ollama.embeddings() — complete`);
+            
+            return { file, data };
+        });
 
-            setProgress(65, 'Parsing document structure...', 'PARSING');
-            addLog(`parsed ${data.metrics?.lines || '?'} lines`);
-            await delay(300);
+        // Use Promise.allSettled to run them all at the exact same time
+        const results = await Promise.allSettled(uploadPromises);
+        
+        setProgress(90, 'Integrating into cortex memory...', 'INTEGRATING');
+        addLog('load_context()');
+        await delay(300);
 
-            setProgress(80, 'Generating semantic embeddings...', 'EMBEDDING');
-            addLog('ollama.embeddings() — batch generation');
-            await delay(350);
+        let successCount = 0;
+        for (const res of results) {
+            if (res.status === 'fulfilled') {
+                state.filename = res.value.data.filename;
+                state.metrics = res.value.data.metrics;
+                state.documents = res.value.data.documents;
+                showToast(`Document loaded: ${res.value.file.name}`, 'success');
+                successCount++;
+            } else {
+                showToast(res.reason.message || 'Upload failed', 'error');
+                addLog(`ERROR: ${res.reason.message}`, 'error');
+            }
+        }
 
-            setProgress(95, 'Integrating into cortex memory...', 'INTEGRATING');
-            addLog('load_context()');
-            await delay(250);
-
-            setProgress(100, 'Ingestion complete!', 'COMPLETE');
+        if (successCount > 0) {
+            setProgress(100, 'Batch ingestion complete!', 'COMPLETE');
             addLog('cortex.ready = true', 'success');
             addLog('status: ACTIVE', 'accent');
             await delay(500);
 
-            state.filename = data.filename;
-            state.metrics = data.metrics;
-            state.documents = data.documents;
-
             const docRes = await fetch('/api/document');
-            const docData = await docRes.json();
-            state.documentLines = docData.content.split('\n');
+            lastDocData = await docRes.json();
+            state.documentLines = lastDocData.content.split('\n');
+        } else {
+            setProgress(100, 'Batch ingestion failed', 'ERROR');
+            await delay(1000);
+        }
 
-            stopLoaderParticles();
-            dropzone.hidden = false;
-            uploadProgressContainer.hidden = true;
+        stopLoaderParticles();
+        dropzone.hidden = false;
+        uploadProgressContainer.hidden = true;
 
+        if (lastDocData) {
             closeIngestionModal();
             renderTabs();
-                renderContextBanner();
-            await renderDocumentWithScan(docData.content);
+            renderContextBanner();
+            await renderDocumentWithScan(lastDocData.content);
             updateTelemetryUI();
             enableChatSystem();
-            showToast(`Document loaded: ${file.name}`, 'success');
-
-        } catch (err) {
-            console.error(err);
-            showToast(err.message || 'Ingestion failed', 'error');
-            stopLoaderParticles();
-            dropzone.hidden = false;
-            uploadProgressContainer.hidden = true;
         }
     }
 
@@ -903,12 +916,12 @@ document.addEventListener('DOMContentLoaded', () => {
     function renderAIResponse(element, markdownText, streaming = false) {
         let cleaned = markdownText;
         cleaned = cleaned.replace(/💡\s*Suggestion:\s*(.+)$/gm, '');
-        cleaned = cleaned.replace(/Suggested Follow-up Questions:?\s*$/i, '');
-        cleaned = cleaned.replace(/💡\s*Suggestions:?\s*$/i, '');
         
-        // Sometimes the model outputs a header for the questions but no other text.
-        cleaned = cleaned.replace(/\*\*Follow-Up Questions:?\*\*\s*/gi, '');
-        cleaned = cleaned.replace(/Follow-Up Questions:?\s*/gi, '');
+        // Remove common suggestion headers that the model might generate
+        cleaned = cleaned.replace(/#*\s*\**Follow-Up Questions:?\**\s*/gi, '');
+        cleaned = cleaned.replace(/#*\s*\**Additional Relevant Follow-Up Questions:?\**\s*/gi, '');
+        cleaned = cleaned.replace(/#*\s*\**Suggested Follow-up Questions:?\**\s*/gi, '');
+        cleaned = cleaned.replace(/💡\s*Suggestions:?\s*/gi, '');
 
         cleaned = cleaned.trim();
         

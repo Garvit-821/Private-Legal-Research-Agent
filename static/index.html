@@ -7,10 +7,10 @@
     <title>Local-Cortex</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@700;800;900&family=Inter:ital,wght@0,300;0,400;0,500;0,600;0,700;0,800;0,900;1,400&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <link rel="stylesheet" href="styles.css?v=2.0">
-    <script src="app.js?v=2.0" defer></script>
+    <link rel="stylesheet" href="styles.css?v=3.0">
+    <script src="app.js?v=3.0" defer></script>
 </head>
 <body>
     <!-- Ambient particle canvas -->
@@ -204,14 +204,14 @@
             </div>
 
             <div class="dropzone-container" id="dropzone">
-                <input type="file" id="fileInput" accept=".txt,.pdf,.docx,.md,.markdown" hidden>
+                <input type="file" id="fileInput" accept=".txt,.pdf,.docx,.md,.markdown" hidden multiple>
                 <div class="dropzone-content">
                     <div class="dropzone-hex-grid" aria-hidden="true"></div>
                     <div class="cloud-icon-wrapper">
                         <i class="fa-solid fa-cloud-arrow-up cloud-icon"></i>
                         <div class="cloud-pulse"></div>
                     </div>
-                    <h3>Drag &amp; drop your file here</h3>
+                    <h3>Drag &amp; drop your file(s) here</h3>
                     <p>Supported: <span>.pdf · .docx · .md · .txt</span></p>
                     <button type="button" class="btn-primary" id="btnSelectFile">
                         <i class="fa-solid fa-folder-open"></i> Browse Files

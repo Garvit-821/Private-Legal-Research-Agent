@@ -1,0 +1,77 @@
+================================================================================
+VELOCITY DROP UNLISTED / PRE-IPO FINANCIAL & OPERATIONAL MATRIX (FY 2025-2026)
+Document ID: VD-QC-FY26-DRAFT2
+Classification: STRICTLY CONFIDENTIAL - INVESTOR RELATIONS DECK
+================================================================================
+
+SECTION 1: HYPERLOCAL LEDGER & REVENUE AGGREGATION
+--------------------------------------------------------------------------------
+Velocity Drop Private Limited (the "Company") completed its FY26 operational audit 
+with a staggering 120% surge in top-line Gross Order Value (GOV) driven by heavy urban 
+penetration and 10-minute consumer tech delivery adoption. 
+
+Key Operational Financials (INR Crores):
+• Total Revenue from Operations: ₹17,588 Cr
+• Ancillary Income (Ad Revenue Engine): ₹1,636 Cr
+• Platform Fees & Surges: ₹564 Cr
+• Non-Operating Fixed Deposit Interest: ₹505 Cr
+• Consolidated Net Annual Loss: ₹5,905 Cr
+
+Auditor Inconsistency Flag (Cash Position Delta):
+Section 1 states that the company retains cash and bank balances of ₹973 Crore. 
+However, cross-referencing Section 4 (Lease Commitments) reveals an unhedged 
+off-balance-sheet milestone liability of ₹1,735 Crore earmarked purely for dark store 
+lease renewals due in Q2. This creates a real unencumbered cash deficit of ₹762 Crore, 
+leaving the company heavily reliant on its upcoming ₹8,010 Crore public IPO capital injection.
+
+
+SECTION 2: DARK STORE NETWORKS & COMPUTE INFRASTRUCTURE
+--------------------------------------------------------------------------------
+The automated routing team successfully migrated its dark store location-prediction and 
+inventory mapping nodes onto a localized Linux-based cluster environment.
+
+Hardware Ingestion Limitations & Thresholds:
+Each individual dark store telemetry unit features an on-site edge machine bounded 
+to a hard 4.0 GB VRAM limit for handling localized order-routing queues.
+
+• Stable Node Profile: The primary routing agent running the 3B parameter spatial-
+  mapping model executes comfortably at exactly 2.3 GB VRAM. This leaves 1.7 GB 
+  of physical VRAM clear to handle sudden real-time order surges without thread blocks.
+  
+• OOM Engine Crash: In an attempt to lower dispatch latency, engineers loaded an un-quantized 
+  7B parameter predictive inventory matrix demanding a baseline of 5.2 GB VRAM. 
+  The script breached the hardware limits, resulting in immediate Out-of-Memory (OOM) 
+  kernel terminations and shutting down dispatches across 47 dark stores for 4 hours.
+
+
+SECTION 3: PIPELINE RELEASES & DEVELOPMENT TIMELINE
+--------------------------------------------------------------------------------
+The software infrastructure layer is moving its inventory ingestion platform to a 
+modular npm package structure to allow ecosystem developers to integrate localized dark store APIs.
+
+Development Roadmap Milestones:
+1. October 15, 2026: NPM public launch of `@vdrop-engine/isolated-ctx` for developer dark store queries.
+2. November 30, 2026: Integration of strict Pydantic JSON schema validations to sanitize incoming supplier invoice payloads.
+3. January 15, 2027: Rollout of offline OCR model layers to read and scan printed barcode spreadsheets inside warehouses completely without internet access.
+4. March 1, 2027: Integration of multi-file directory routing for neighborhood delivery tracking logs.
+
+
+SECTION 4: CAPITAL BURDEN & REGULATORY RISK PROFILES
+--------------------------------------------------------------------------------
+Risk Item Alpha (The Cost of Scale):
+Total corporate expenses climbed 79% to ₹29,027 Crore. Delivery and handling 
+costs alone more than doubled to ₹3,046 Crore. If rival quick-commerce operators 
+(e.g., Blinkit or Swiggy Instamart) increase marketing spend, Velocity Drop may 
+be forced to raise its customer acquisition incentives, pushing operating breakeven 
+back by an estimated 1,500 basis points.
+
+Risk Item Beta (Compliance Residency Overlap):
+Legal counsel highlights that while the upcoming `@vdrop-engine/isolated-ctx` 
+operates completely offline on local machines, any developer implementation that 
+accidentally routes customer address payloads to external map validation APIs will 
+trigger localized data-handling law violations, carrying a penalty threshold of 
+up to 4% of global gross turnover.
+
+================================================================================
+END OF AUDIT REPORT — DOCUMENT ID: VD-QC-FY26-DRAFT2
+================================================================================

@@ -30,7 +30,7 @@
     --text-code: #0e0f0c;            /* Code text ink */
 
     --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
-    --font-display: 'Inter', system-ui, -apple-system, sans-serif;
+    --font-display: 'Manrope', 'Inter', system-ui, -apple-system, sans-serif;
     --font-mono: 'JetBrains Mono', monospace;
 
     --glass-blur: none;              /* Flat magazine design, no blur */
@@ -85,23 +85,36 @@ body {
 }
 
 ::-webkit-scrollbar { width: 5px; height: 5px; }
-::-webkit-scrollbar-track { background: rgba(0, 0, 0, 0.15); }
-::-webkit-scrollbar-thumb { background: rgba(139, 92, 246, 0.25); border-radius: 4px; }
-::-webkit-scrollbar-thumb:hover { background: var(--accent-secondary); }
+::-webkit-scrollbar-track { background: var(--bg-main); }
+::-webkit-scrollbar-thumb { background: var(--accent-primary-neutral); border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: var(--accent-primary); }
 
 /* ==========================================================================
    HEADER
    ========================================================================== */
 .top-header {
     background: var(--bg-header);
-    backdrop-filter: var(--glass-blur);
     border: 1px solid var(--panel-border);
+    border-bottom: 2px solid var(--panel-border);
     border-radius: var(--radius-md);
     padding: 0.85rem 1.35rem;
     display: flex;
     justify-content: space-between;
     align-items: center;
     box-shadow: var(--glass-shadow);
+    position: relative;
+    overflow: hidden;
+}
+
+.top-header::after {
+    content: '';
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    width: 100%;
+    height: 2px;
+    background: linear-gradient(90deg, var(--accent-primary) 0%, var(--accent-primary-active) 60%, transparent 100%);
+    opacity: 0.6;
 }
 
 .brand-section {
@@ -112,19 +125,18 @@ body {
 
 .logo-pulse {
     position: relative;
-    width: 44px;
-    height: 44px;
-    background: var(--accent-primary-pale);
-    border: 1px solid var(--panel-border-hover);
-    border-radius: 50%;
+    width: 40px;
+    height: 40px;
+    background: var(--accent-primary);
+    border-radius: var(--radius-xl);
     display: flex;
     align-items: center;
     justify-content: center;
 }
 
 .logo-icon {
-    font-size: 1.15rem;
-    color: var(--accent-secondary);
+    font-size: 1.05rem;
+    color: var(--on-primary);
 }
 
 .pulse-ring {
@@ -133,10 +145,11 @@ body {
 
 .title-meta h1 {
     font-family: var(--font-display);
-    font-size: 1.5rem;
+    font-size: 1.4rem;
     font-weight: 900;
-    letter-spacing: -0.5px;
+    letter-spacing: -0.8px;
     color: var(--text-primary);
+    text-transform: none;
 }
 
 .title-meta .subtitle {
@@ -222,7 +235,8 @@ body {
     color: var(--text-primary);
     width: 44px;
     height: 44px;
-    background: var(--bg-main);
+    background: var(--panel-bg);
+    border: 1px solid var(--panel-border);
     border-radius: 50%;
     display: flex;
     align-items: center;
@@ -319,10 +333,11 @@ body {
 }
 
 .panel-title h2 {
-    font-family: var(--font-sans);
-    font-size: 0.9rem;
+    font-family: var(--font-display);
+    font-size: 0.82rem;
     font-weight: 800;
-    letter-spacing: 0px;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
     color: var(--text-primary);
 }
 
@@ -502,6 +517,22 @@ button:disabled, textarea:disabled {
     padding: 2.5rem;
     text-align: center;
     gap: 1rem;
+    background: var(--bg-main);
+}
+
+.viewport-placeholder h3 {
+    font-family: var(--font-display);
+    font-size: 1.05rem;
+    color: var(--text-primary);
+    font-weight: 800;
+    letter-spacing: -0.3px;
+}
+
+.viewport-placeholder p {
+    font-size: 0.78rem;
+    max-width: 280px;
+    line-height: 1.6;
+    color: var(--text-secondary);
 }
 
 .placeholder-orbit {
@@ -528,17 +559,6 @@ button:disabled, textarea:disabled {
     animation: iconFloat 2.5s infinite ease-in-out;
 }
 
-.viewport-placeholder h3 {
-    font-size: 1.1rem;
-    color: var(--text-primary);
-    font-weight: 800;
-}
-
-.viewport-placeholder p {
-    font-size: 0.78rem;
-    max-width: 280px;
-    line-height: 1.6;
-}
 
 .code-line-row {
     display: flex;
@@ -681,9 +701,11 @@ button:disabled, textarea:disabled {
 }
 
 .chat-placeholder h3 {
-    font-size: 1.25rem;
+    font-family: var(--font-display);
+    font-size: 1.2rem;
     color: var(--text-primary);
     font-weight: 900;
+    letter-spacing: -0.5px;
 }
 
 .chat-placeholder p {
@@ -902,6 +924,7 @@ button:disabled, textarea:disabled {
 .suggestion-btn {
     background: var(--bg-main);
     border: 1px solid var(--panel-border);
+    border-left: 3px solid var(--accent-primary);
     color: var(--text-primary);
     padding: 0.5rem 0.85rem;
     border-radius: var(--radius-xl);
@@ -962,7 +985,7 @@ button:disabled, textarea:disabled {
     align-items: flex-end;
     background: #ffffff;
     border: 1px solid var(--panel-border);
-    border-radius: var(--radius-md);
+    border-radius: var(--radius-lg);
     padding: 0.45rem 0.55rem 0.45rem 0.85rem;
     gap: 0.55rem;
     transition: border-color var(--transition-fast);
@@ -1022,7 +1045,7 @@ button:disabled, textarea:disabled {
 /* Markdown in bubbles */
 .bubble-content p { margin-bottom: 0.55rem; }
 .bubble-content p:last-child { margin-bottom: 0; }
-.bubble-content strong { color: var(--accent-primary); font-weight: 600; }
+.bubble-content strong { color: var(--text-primary); font-weight: 700; }
 .bubble-content ul, .bubble-content ol { margin-left: 1.1rem; margin-bottom: 0.55rem; }
 .bubble-content li { margin-bottom: 0.2rem; }
 .bubble-content blockquote {
@@ -1092,9 +1115,9 @@ button:disabled, textarea:disabled {
 
 .modal-header h2 {
     font-family: var(--font-display);
-    font-size: 1.25rem;
+    font-size: 1.2rem;
     font-weight: 900;
-    letter-spacing: -0.2px;
+    letter-spacing: -0.4px;
     color: var(--text-primary);
     margin-bottom: 0.3rem;
     display: flex;
@@ -1250,10 +1273,12 @@ button:disabled, textarea:disabled {
 .dropzone-container:hover .cloud-icon { color: var(--text-primary); }
 
 .dropzone-content h3 {
+    font-family: var(--font-display);
     font-size: 1rem;
-    font-weight: 700;
+    font-weight: 800;
     margin-bottom: 0.3rem;
     color: var(--text-primary);
+    letter-spacing: -0.3px;
 }
 
 .dropzone-content p {
@@ -1495,6 +1520,7 @@ button:disabled, textarea:disabled {
 .toast.error { border-left-color: var(--accent-error); }
 .toast.warn { border-left-color: var(--accent-warn-deep); }
 .toast.success { border-left-color: var(--accent-success); }
+.toast { border-left-color: var(--accent-primary); }
 
 /* ==========================================================================
    KEYFRAMES
@@ -1588,13 +1614,13 @@ button:disabled, textarea:disabled {
 }
 
 @keyframes avatarThink {
-    0%, 100% { box-shadow: 0 0 8px rgba(0, 245, 255, 0.2); }
-    50% { box-shadow: 0 0 18px rgba(0, 245, 255, 0.5); }
+    0%, 100% { box-shadow: 0 0 0 2px var(--accent-primary-neutral); }
+    50% { box-shadow: 0 0 0 6px var(--accent-primary-pale); }
 }
 
 @keyframes metricPulse {
     0%, 100% { box-shadow: var(--glass-shadow); }
-    50% { box-shadow: 0 0 20px rgba(0, 245, 255, 0.12); }
+    50% { box-shadow: 0 0 20px rgba(159, 232, 112, 0.18); }
 }
 
 @keyframes progressGlow {
@@ -1610,6 +1636,44 @@ button:disabled, textarea:disabled {
 .spinner-icon {
     animation: spinClockwise 0.8s linear infinite;
     color: var(--accent-primary);
+}
+
+/* Cloud pulse ring in dropzone */
+.cloud-pulse {
+    position: absolute;
+    inset: -6px;
+    border-radius: 50%;
+    border: 2px solid var(--accent-primary-neutral);
+    animation: cloudPulseRing 2s ease-out infinite;
+    pointer-events: none;
+}
+
+/* Hex grid decorative background in dropzone */
+.dropzone-hex-grid {
+    position: absolute;
+    inset: 0;
+    background-image:
+        radial-gradient(circle, var(--accent-primary-pale) 1px, transparent 1px);
+    background-size: 18px 18px;
+    opacity: 0.6;
+    border-radius: var(--radius-xl);
+    pointer-events: none;
+}
+
+/* Progress bar glow sweep */
+.progress-bar-glow {
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(90deg, transparent 0%, var(--accent-primary-active) 50%, transparent 100%);
+    animation: progressGlow 1.6s ease-in-out infinite;
+    border-radius: 6px;
+    z-index: 2;
+}
+
+@keyframes cloudPulseRing {
+    0% { transform: scale(0.92); opacity: 0.8; }
+    70% { transform: scale(1.18); opacity: 0; }
+    100% { transform: scale(0.92); opacity: 0; }
 }
 
 /* Document Tab Bar Styles - Wise Inspired Design */
