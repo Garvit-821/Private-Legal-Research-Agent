@@ -9,8 +9,10 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <link rel="stylesheet" href="styles.css?v=2.0">
-    <script src="app.js?v=2.0" defer></script>
+    <link rel="stylesheet" href="styles.css?v=3.0">
+    <script src="contracts.js?v=3.0"></script>
+    <script src="agent-picker.js?v=3.0" defer></script>
+    <script src="app.js?v=3.0" defer></script>
 </head>
 <body>
     <!-- Ambient particle canvas -->
@@ -32,6 +34,11 @@
                 </div>
             </div>
             <div class="header-actions">
+                <button class="btn-agent-picker" id="btnOpenAgentPicker" title="Select AI agent">
+                    <i class="fa-solid fa-robot"></i>
+                    <span id="activeAgentLabel">qwen2.5:3b</span>
+                    <i class="fa-solid fa-chevron-down agent-chevron"></i>
+                </button>
                 <div class="status-badge" id="statusBadge">
                     <span class="status-dot online"></span>
                     <span class="badge-text">ENGINE ONLINE</span>
@@ -255,5 +262,37 @@
     </div>
 
     <div class="toast-container" id="toastContainer"></div>
+
+    <!-- AGENT PICKER MODAL -->
+    <div class="modal-overlay hidden" id="agentPickerModal">
+        <div class="modal-card agent-picker-card">
+            <div class="modal-header">
+                <div class="modal-header-top">
+                    <h2><i class="fa-solid fa-robot"></i> AGENT PICKER</h2>
+                    <button class="btn-modal-close" id="btnCloseAgentPicker" title="Dismiss">
+                        <i class="fa-solid fa-xmark"></i>
+                    </button>
+                </div>
+                <p>Select a local Ollama model matched to your system specifications</p>
+            </div>
+
+            <div class="agent-specs-bar" id="agentSpecsBar">
+                <span id="agentSpecsText">Detecting system specifications...</span>
+            </div>
+
+            <div class="agent-tabs">
+                <button class="agent-tab active" data-tab="recommended">Recommended</button>
+                <button class="agent-tab" data-tab="installed">Installed</button>
+                <button class="agent-tab" data-tab="library">Library</button>
+            </div>
+
+            <div class="agent-list-panel" id="agentListPanel"></div>
+
+            <div class="agent-picker-footer">
+                <span class="embed-note">Embedding model: <strong id="embedModelLabel">nomic-embed-text</strong></span>
+                <a href="https://ollama.com/library" target="_blank" rel="noopener noreferrer">Browse Ollama library</a>
+            </div>
+        </div>
+    </div>
 </body>
 </html>
