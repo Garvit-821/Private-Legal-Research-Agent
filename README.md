@@ -811,10 +811,15 @@ flowchart LR
 - [LangChain](https://www.langchain.com/) — prompt orchestration
 - [FastAPI](https://fastapi.tiangolo.com/) — API server
 - [Nomic Embed](https://ollama.com/library/nomic-embed-text) — embedding model
-- [Qwen2.5](https://huggingface.co/Qwen) — default chat model family
+- [Qwen2.5](https://huggingface.co/Qwen) — default chat model family 
+
 
 ---
+## Contributors
 
+Thank you to the following people who have contributed to this project:
+
+- **[RUDRA-PRATAP-SINGH01](https://github.com/RUDRA-PRATAP-SINGH01)** — Major documentation rewrite, architecture mapping, and README overhaul.
 ## License
 
 MIT License — see [LICENSE](LICENSE).
