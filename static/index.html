@@ -10,11 +10,9 @@
     <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@700;800;900&family=Inter:ital,wght@0,300;0,400;0,500;0,600;0,700;0,800;0,900;1,400&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link rel="stylesheet" href="styles.css?v=3.0">
-<<<<<<< feature-hallucination-fix
-=======
     <script src="contracts.js?v=3.0"></script>
+    <script src="whiteboard.js?v=3.0" defer></script>
     <script src="agent-picker.js?v=3.0" defer></script>
->>>>>>> features
     <script src="app.js?v=3.0" defer></script>
   
 </head>
@@ -38,6 +36,14 @@
                 </div>
             </div>
             <div class="header-actions">
+                <div class="view-mode-switcher">
+                    <button class="btn-view-mode active" id="btnViewCockpit" title="Cockpit Split View">
+                        <i class="fa-solid fa-table-columns"></i> Cockpit
+                    </button>
+                    <button class="btn-view-mode" id="btnViewWhiteboard" title="Spatial Whiteboard Mind Map">
+                        <i class="fa-solid fa-diagram-project"></i> Whiteboard
+                    </button>
+                </div>
                 <button class="btn-agent-picker" id="btnOpenAgentPicker" title="Select AI agent">
                     <i class="fa-solid fa-robot"></i>
                     <span id="activeAgentLabel">qwen2.5:3b</span>
@@ -197,8 +203,30 @@
                         </form>
                     </div>
                 </div>
-            </section>
         </main>
+
+        <!-- SPATIAL WHITEBOARD VIEW -->
+        <div class="whiteboard-view-container" id="whiteboardContainer" style="display: none;">
+            <div class="whiteboard-toolbar">
+                <div class="toolbar-group">
+                    <button class="btn-wb-tool" id="btnWbZoomIn" title="Zoom In"><i class="fa-solid fa-plus"></i></button>
+                    <span class="wb-zoom-label" id="wbZoomVal">100%</span>
+                    <button class="btn-wb-tool" id="btnWbZoomOut" title="Zoom Out"><i class="fa-solid fa-minus"></i></button>
+                    <button class="btn-wb-tool" id="btnWbReset" title="Reset Canvas View"><i class="fa-solid fa-arrows-to-dot"></i></button>
+                </div>
+                <div class="toolbar-separator"></div>
+                <div class="toolbar-group">
+                    <button class="btn-wb-tool" id="btnWbAddNote" title="Add Custom Note"><i class="fa-solid fa-sticky-note"></i> Add Note</button>
+                    <button class="btn-wb-tool" id="btnWbAutoLayout" title="Auto Layout Mind Map"><i class="fa-solid fa-diagram-nested"></i> Auto Layout</button>
+                    <button class="btn-wb-tool" id="btnWbClear" title="Clear Canvas"><i class="fa-solid fa-trash-can"></i> Clear</button>
+                </div>
+            </div>
+            <div class="whiteboard-viewport" id="whiteboardViewport">
+                <div class="whiteboard-world" id="whiteboardWorld">
+                    <svg class="whiteboard-svg-layer" id="whiteboardSvg"></svg>
+                </div>
+            </div>
+        </div>
     </div>
 
     <!-- UPLOAD MODAL -->
@@ -298,264 +326,5 @@
             </div>
         </div>
     </div>
-</body>
-</html>
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="description" content="Local-Cortex — Open-Source Local Intelligence Engine">
-    <title>Local-Cortex</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@700;800;900&family=Inter:ital,wght@0,300;0,400;0,500;0,600;0,700;0,800;0,900;1,400&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <link rel="stylesheet" href="styles.css?v=3.0">
-    <script src="app.js?v=3.0" defer></script>
-</head>
-<body>
-    <!-- Ambient particle canvas -->
-    <canvas id="bgCanvas" aria-hidden="true"></canvas>
-    <div class="scanline-overlay" aria-hidden="true"></div>
-
-    <div class="app-container">
-        <!-- HEADER -->
-        <header class="top-header">
-            <div class="brand-section">
-                <div class="logo-pulse">
-                    <i class="fa-solid fa-brain logo-icon"></i>
-                    <span class="pulse-ring"></span>
-                    <span class="pulse-ring delay"></span>
-                </div>
-                <div class="title-meta">
-                    <h1>LOCAL-CORTEX</h1>
-                    <p class="subtitle">OPEN-SOURCE LOCAL INTELLIGENCE ENGINE</p>
-                </div>
-            </div>
-            <div class="header-actions">
-                <div class="status-badge" id="statusBadge">
-                    <span class="status-dot online"></span>
-                    <span class="badge-text">ENGINE ONLINE</span>
-                </div>
-                <button class="btn-icon btn-upload-trigger" id="btnOpenUpload" title="Upload document">
-                    <i class="fa-solid fa-file-arrow-up"></i>
-                </button>
-            </div>
-        </header>
-
-        <!-- METRICS -->
-        <section class="telemetry-bar" id="telemetryBar">
-            <div class="metric-card" id="metricDoc">
-                <div class="metric-icon"><i class="fa-solid fa-file-lines"></i></div>
-                <div class="metric-info">
-                    <span class="metric-label">Active Document</span>
-                    <span class="metric-value metric-value-sm" id="valDocName">—</span>
-                    <span class="metric-delta" id="valDocStatus">Awaiting upload</span>
-                </div>
-            </div>
-            <div class="metric-card" id="metricLines">
-                <div class="metric-icon"><i class="fa-solid fa-align-left"></i></div>
-                <div class="metric-info">
-                    <span class="metric-label">Parsed Lines</span>
-                    <span class="metric-value" id="valLines">0</span>
-                    <span class="metric-delta">Document structure</span>
-                </div>
-            </div>
-            <div class="metric-card" id="metricTokens">
-                <div class="metric-icon"><i class="fa-solid fa-font"></i></div>
-                <div class="metric-info">
-                    <span class="metric-label">Word Count</span>
-                    <span class="metric-value" id="valWords">0</span>
-                    <span class="metric-delta">Indexed tokens</span>
-                </div>
-            </div>
-            <div class="metric-card" id="metricSession">
-                <div class="metric-icon"><i class="fa-solid fa-comments"></i></div>
-                <div class="metric-info">
-                    <span class="metric-label">Session</span>
-                    <span class="metric-value" id="valSession">IDLE</span>
-                    <span class="metric-delta delta-pos" id="valSessionDelta">Ready to chat</span>
-                </div>
-            </div>
-        </section>
-
-        <!-- MAIN GRID -->
-        <main class="cockpit-grid">
-
-            <!-- LEFT: DOCUMENT VIEWER -->
-            <section class="panel-card left-panel" id="leftPanel">
-                <div class="panel-header">
-                    <div class="panel-title">
-                        <i class="fa-solid fa-book-open"></i>
-                        <h2>DOCUMENT VIEWER</h2>
-                    </div>
-                    <div class="panel-actions">
-                        <div class="search-container">
-                            <i class="fa-solid fa-magnifying-glass search-icon"></i>
-                            <input type="text" id="docSearch" placeholder="Search document..." autocomplete="off">
-                        </div>
-                        <button class="btn-icon" id="btnScrollToTop" title="Scroll to top">
-                            <i class="fa-solid fa-circle-arrow-up"></i>
-                        </button>
-                    </div>
-                </div>
-
-                <div class="panel-body document-viewer-wrapper">
-                    <div class="document-tabs-bar" id="documentTabsBar" style="display: none;">
-                        <div class="tabs-list" id="tabsList"></div>
-                        <button class="btn-tab-add" id="btnTabAdd" title="Upload new document">
-                            <i class="fa-solid fa-plus"></i>
-                        </button>
-                    </div>
-                    <div class="doc-active-banner" id="docActiveBanner">
-                        <i class="fa-solid fa-file-invoice"></i>
-                        <span id="activeDocName">NO DOCUMENT LOADED</span>
-                        <span class="doc-scan-indicator" id="docScanIndicator" hidden>
-                            <span class="scan-dot"></span> Reading
-                        </span>
-                    </div>
-                    <div class="document-code-viewport" id="documentViewport">
-                        <div class="viewport-placeholder">
-                            <div class="placeholder-orbit">
-                                <div class="orbit-ring"></div>
-                                <i class="fa-solid fa-file-arrow-up upload-pulse-icon"></i>
-                            </div>
-                            <h3>Drop a document to begin</h3>
-                            <p>Upload a PDF, DOCX, Markdown, or text file to start chatting with your content.</p>
-                            <button class="btn-primary btn-sm" id="btnPlaceholderUpload">
-                                <i class="fa-solid fa-cloud-arrow-up"></i> Upload Document
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            </section>
-
-            <!-- RIGHT: CHAT AGENT -->
-            <section class="panel-card right-panel" id="rightPanel">
-                <div class="panel-header">
-                    <div class="panel-title">
-                        <i class="fa-solid fa-brain"></i>
-                        <h2>CORTEX AGENT</h2>
-                    </div>
-                    <div class="panel-actions">
-                        <div class="agent-status" id="agentStatus">
-                            <span class="agent-status-dot"></span>
-                            <span class="agent-status-text">Idle</span>
-                        </div>
-                        <button class="btn-secondary btn-sm" id="btnExportChat" title="Export chat history">
-                            <i class="fa-solid fa-download"></i> Export
-                        </button>
-                        <button class="btn-secondary btn-sm" id="btnPurgeMemory">
-                            <i class="fa-solid fa-trash-can"></i> Clear
-                        </button>
-                    </div>
-                </div>
-
-                <!-- Context awareness banner: shows all docs loaded in agent memory -->
-                <div class="context-banner" id="contextBanner" style="display:none;">
-                    <i class="fa-solid fa-database"></i>
-                    <span class="context-banner-label">Agent context:</span>
-                    <div class="context-doc-pills" id="contextDocPills"></div>
-                </div>
-
-                <div class="panel-body chat-interface-wrapper">
-                    <div class="chat-log" id="chatLog">
-                        <div class="chat-placeholder">
-                            <div class="agent-avatar-large">
-                                <i class="fa-solid fa-brain"></i>
-                                <div class="avatar-glow"></div>
-                            </div>
-                            <h3>Cortex Agent Ready</h3>
-                            <p>Upload a document, then ask questions about its content. Answers are grounded in your file with line citations.</p>
-                            <div class="placeholder-hints">
-                                <span><i class="fa-solid fa-quote-left"></i> Summarize key points</span>
-                                <span><i class="fa-solid fa-magnifying-glass"></i> Find specific info</span>
-                                <span><i class="fa-solid fa-list"></i> Extract action items</span>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div class="chat-input-deck">
-                        <form id="chatForm">
-                            <div class="chat-input-wrapper">
-                                <textarea id="chatInput" placeholder="Ask anything about your document..." rows="1" required disabled></textarea>
-                                <button type="submit" id="btnSubmitChat" class="btn-send" disabled title="Send message">
-                                    <i class="fa-solid fa-paper-plane"></i>
-                                </button>
-                            </div>
-                            <p class="input-hint"><kbd>Enter</kbd> to send · <kbd>Shift+Enter</kbd> for new line</p>
-                        </form>
-                    </div>
-                </div>
-            </section>
-        </main>
-    </div>
-
-    <!-- UPLOAD MODAL -->
-    <div class="modal-overlay" id="uploadModal">
-        <div class="modal-card">
-            <div class="modal-header">
-                <div class="modal-header-top">
-                    <h2><i class="fa-solid fa-brain"></i> CORTEX INGESTION</h2>
-                    <button class="btn-modal-close" id="btnCloseModal" title="Dismiss" hidden>
-                        <i class="fa-solid fa-xmark"></i>
-                    </button>
-                </div>
-                <p>Load a document into local memory — everything stays on your machine</p>
-            </div>
-
-            <div class="dropzone-container" id="dropzone">
-                <input type="file" id="fileInput" accept=".txt,.pdf,.docx,.md,.markdown" hidden multiple>
-                <div class="dropzone-content">
-                    <div class="dropzone-hex-grid" aria-hidden="true"></div>
-                    <div class="cloud-icon-wrapper">
-                        <i class="fa-solid fa-cloud-arrow-up cloud-icon"></i>
-                        <div class="cloud-pulse"></div>
-                    </div>
-                    <h3>Drag &amp; drop your file(s) here</h3>
-                    <p>Supported: <span>.pdf · .docx · .md · .txt</span></p>
-                    <button type="button" class="btn-primary" id="btnSelectFile">
-                        <i class="fa-solid fa-folder-open"></i> Browse Files
-                    </button>
-                </div>
-            </div>
-
-            <!-- Cinematic ingestion loader -->
-            <div class="upload-progress-container" id="uploadProgressContainer" hidden>
-                <div class="cinematic-loader" id="cinematicLoader">
-                    <canvas id="loaderCanvas" aria-hidden="true"></canvas>
-
-                    <div class="scanner-container">
-                        <div class="hex-ring hex-1"></div>
-                        <div class="hex-ring hex-2"></div>
-                        <div class="cortex-ring ring-outer"></div>
-                        <div class="cortex-ring ring-middle"></div>
-                        <div class="cortex-ring ring-inner"></div>
-                        <div class="cortex-core">
-                            <i class="fa-solid fa-brain loader-brain-icon"></i>
-                        </div>
-                        <div class="scanning-laser"></div>
-                        <div class="scanning-laser laser-2"></div>
-                    </div>
-
-                    <div class="loader-status-wrapper">
-                        <h3 class="loader-title" id="loaderTitle">INITIALIZING CORTEX</h3>
-                        <div class="progress-bar-track">
-                            <div class="progress-bar-glow"></div>
-                            <div class="progress-bar-fill" id="uploadProgressBar"></div>
-                        </div>
-                        <p class="progress-status" id="uploadProgressStatus">Preparing ingestion pipeline...</p>
-                        <div class="progress-percent" id="uploadProgressPercent">0%</div>
-                        <div class="cortex-terminal-output" id="loaderLog">
-                            <div class="log-line">> cortex.init()</div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <div class="toast-container" id="toastContainer"></div>
 </body>
 </html>

@@ -45,14 +45,14 @@ def recommendation_score(
     elif label == "marginal":
         score += 10.0
     else:
-        score += 5.0
+        score += 15.0
 
     if installed:
-        score += 20.0
+        score += 25.0
     if profile.default:
-        score += 15.0
+        score += 10.0
     if profile.tier == "lightweight" and specs.ram_gb <= 12:
         score += 10.0
     if profile.tier == "balanced" and specs.ram_gb >= 16:
-        score += 8.0
+        score += 10.0
     return round(min(score, 100.0), 2)

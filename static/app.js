@@ -59,7 +59,15 @@ document.addEventListener('DOMContentLoaded', () => {
     const bgCanvas = document.getElementById('bgCanvas');
     const loaderCanvas = document.getElementById('loaderCanvas');
 
+    const btnViewCockpit = document.getElementById('btnViewCockpit');
+    const btnViewWhiteboard = document.getElementById('btnViewWhiteboard');
+    const cockpitGrid = document.querySelector('.cockpit-grid');
+    const whiteboardContainer = document.getElementById('whiteboardContainer');
+
     initParticleBackground();
+    if (window.CortexWhiteboard) window.CortexWhiteboard.init();
+    setupViewSwitcher();
+    setupWhiteboardToolbar();
     checkActiveDocument();
 
     // ==========================================================================
@@ -188,6 +196,35 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // ==========================================================================
+    // VIEW SWITCHER & WHITEBOARD INTEGRATION
+    // ==========================================================================
+    function setupViewSwitcher() {
+        if (!btnViewCockpit || !btnViewWhiteboard) return;
+        btnViewCockpit.addEventListener('click', () => {
+            btnViewCockpit.classList.add('active');
+            btnViewWhiteboard.classList.remove('active');
+            cockpitGrid.style.display = 'grid';
+            whiteboardContainer.style.display = 'none';
+        });
+        btnViewWhiteboard.addEventListener('click', () => {
+            btnViewWhiteboard.classList.add('active');
+            btnViewCockpit.classList.remove('active');
+            cockpitGrid.style.display = 'none';
+            whiteboardContainer.style.display = 'flex';
+            if (window.CortexWhiteboard) window.CortexWhiteboard.autoLayout();
+        });
+    }
+
+    function setupWhiteboardToolbar() {
+        document.getElementById('btnWbZoomIn')?.addEventListener('click', () => window.CortexWhiteboard?.zoomIn());
+        document.getElementById('btnWbZoomOut')?.addEventListener('click', () => window.CortexWhiteboard?.zoomOut());
+        document.getElementById('btnWbReset')?.addEventListener('click', () => window.CortexWhiteboard?.resetView());
+        document.getElementById('btnWbAddNote')?.addEventListener('click', () => window.CortexWhiteboard?.addCustomNote());
+        document.getElementById('btnWbAutoLayout')?.addEventListener('click', () => window.CortexWhiteboard?.autoLayout());
+        document.getElementById('btnWbClear')?.addEventListener('click', () => window.CortexWhiteboard?.clear());
+    }
+
+    // ==========================================================================
     // TOAST
     // ==========================================================================
     function showToast(message, type = 'info') {
@@ -227,7 +264,7 @@ document.addEventListener('DOMContentLoaded', () => {
     async function checkActiveDocument() {
         try {
             const res = await fetch('/api/document');
-            const data = await res.json();
+            const data = await res.json().then(r => r.data || r);
 
             state.documents = data.documents || [];
             if (data.filename) {
@@ -326,6 +363,16 @@ document.addEventListener('DOMContentLoaded', () => {
             });
 
             tabsList.appendChild(tab);
+
+            if (window.CortexWhiteboard) {
+                window.CortexWhiteboard.addNode({
+                    id: `doc-${docName}`,
+                    type: 'doc',
+                    title: docName,
+                    subtitle: docName === state.filename ? 'Active Document' : 'Indexed in Memory',
+                    content: `Source document uploaded to local memory runtime.`
+                });
+            }
         });
 
         // Disable add button if limit reached
@@ -369,12 +416,12 @@ document.addEventListener('DOMContentLoaded', () => {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ filename: docName })
             });
-            const data = await res.json();
+            const data = await res.json().then(r => r.data || r);
             if (data.status === 'success') {
                 state.filename = data.active_filename;
                 
                 const docRes = await fetch('/api/document');
-                const docData = await docRes.json();
+                const docData = await docRes.json().then(r => r.data || r);
                 state.documentLines = docData.content.split('\n');
                 state.metrics = docData.metrics;
 
@@ -398,14 +445,14 @@ document.addEventListener('DOMContentLoaded', () => {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ filename: docName })
             });
-            const data = await res.json();
+            const data = await res.json().then(r => r.data || r);
             if (data.status === 'success') {
                 state.documents = data.documents;
                 state.filename = data.active_filename;
 
                 if (state.filename) {
                     const docRes = await fetch('/api/document');
-                    const docData = await docRes.json();
+                    const docData = await docRes.json().then(r => r.data || r);
                     state.documentLines = docData.content.split('\n');
                     state.metrics = docData.metrics;
                     renderDocument(docData.content, true);
@@ -532,11 +579,11 @@ document.addEventListener('DOMContentLoaded', () => {
             
             const response = await fetch('/api/upload', { method: 'POST', body: formData });
             if (!response.ok) {
-                const err = await response.json();
-                throw new Error(err.detail || 'Upload failed');
+                const err = await response.json().then(r => r.data || r);
+                throw new Error(err.error?.message || err.detail || 'Upload failed');
             }
             
-            const data = await response.json();
+            const data = await response.json().then(r => r.data || r);
             addLog(`[${file.name}] parsed ${data.metrics?.lines || '?'} lines`);
             addLog(`[${file.name}] ollama.embeddings() — complete`);
             
@@ -571,7 +618,7 @@ document.addEventListener('DOMContentLoaded', () => {
             await delay(500);
 
             const docRes = await fetch('/api/document');
-            lastDocData = await docRes.json();
+            lastDocData = await docRes.json().then(r => r.data || r);
             state.documentLines = lastDocData.content.split('\n');
         } else {
             setProgress(100, 'Batch ingestion failed', 'ERROR');
@@ -692,12 +739,12 @@ document.addEventListener('DOMContentLoaded', () => {
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ filename: targetFilename })
                 });
-                const data = await res.json();
+                const data = await res.json().then(r => r.data || r);
                 if (data.status === 'success') {
                     state.filename = targetFilename;
                     
                     const docRes = await fetch('/api/document');
-                    const docData = await docRes.json();
+                    const docData = await docRes.json().then(r => r.data || r);
                     state.documentLines = docData.content.split('\n');
                     state.metrics = docData.metrics;
                     
@@ -782,8 +829,8 @@ document.addEventListener('DOMContentLoaded', () => {
             });
 
             if (!response.ok) {
-                const err = await response.json();
-                throw new Error(err.detail || 'Inference failed');
+                const err = await response.json().then(r => r.data || r);
+                throw new Error(err.error?.message || err.detail || 'Inference failed');
             }
 
             const reader = response.body.getReader();
@@ -791,6 +838,7 @@ document.addEventListener('DOMContentLoaded', () => {
             let rawBuffer = '';
             let generatedAnswer = '';
             let retrievedChunks = [];
+            let receivedSuggestions = [];
             let firstToken = true;
 
             state.isStreaming = true;
@@ -811,23 +859,33 @@ document.addEventListener('DOMContentLoaded', () => {
                     if (dataStr === '[DONE]') break;
 
                     try {
-                        const data = JSON.parse(dataStr);
-                        if (data.type === 'metadata') {
-                            retrievedChunks = data.chunks;
+                        const evt = CortexContracts.parseSsePayload(dataStr);
+                        const payloadData = evt.data || {};
+                        const evtType = evt.type;
+
+                        if (evtType === 'chat.metadata' || evtType === 'metadata') {
+                            retrievedChunks = payloadData.chunks || evt.chunks || [];
                             highlightDocumentLines(retrievedChunks);
                             addCitationsToBubble(aiBubble, retrievedChunks);
-                        } else if (data.type === 'token') {
+                        } else if (evtType === 'chat.token' || evtType === 'token') {
                             if (firstToken) {
-                                aiBubble.querySelector('.bubble-avatar').classList.remove('thinking-pulse');
+                                aiBubble.querySelector('.bubble-avatar')?.classList.remove('thinking-pulse');
                                 firstToken = false;
                             }
-                            generatedAnswer += data.text;
+                            const tokenText = payloadData.text !== undefined ? payloadData.text : (evt.text || '');
+                            generatedAnswer += tokenText;
                             renderAIResponse(textElement, generatedAnswer, true);
                             chatLog.scrollTop = chatLog.scrollHeight;
-                        } else if (data.type === 'error') {
-                            throw new Error(data.detail);
+                        } else if (evtType === 'chat.suggestions' || evtType === 'suggestions') {
+                            receivedSuggestions = payloadData.items || evt.items || [];
+                        } else if (evtType === 'chat.error' || evtType === 'error') {
+                            const errMsg = evt.error?.message || payloadData.detail || evt.detail || 'Inference failed';
+                            throw new Error(errMsg);
                         }
-                    } catch (_) { /* partial SSE chunk */ }
+                    } catch (e) {
+                        if (e.message && !e.message.includes('JSON')) throw e;
+                        /* partial SSE chunk */
+                    }
                 }
             }
 
@@ -837,8 +895,20 @@ document.addEventListener('DOMContentLoaded', () => {
             state.chatHistory.push({ role: 'user', content: messageText });
             state.chatHistory.push({ role: 'assistant', content: generatedAnswer });
 
-            attachSuggestions(aiBubble, generatedAnswer);
+            attachSuggestions(aiBubble, generatedAnswer, receivedSuggestions);
             addCopyButton(aiBubble, generatedAnswer);
+
+            if (window.CortexWhiteboard) {
+                const parentDocId = state.filename ? `doc-${state.filename}` : null;
+                window.CortexWhiteboard.addNode({
+                    id: `ai-${Date.now()}`,
+                    type: 'ai',
+                    title: messageText.length > 35 ? messageText.substring(0, 35) + '...' : messageText,
+                    subtitle: `AI Insight (${retrievedChunks.length} sources)`,
+                    content: generatedAnswer,
+                    parentId: parentDocId
+                });
+            }
 
             setAgentStatus('', 'Ready');
             setSessionState('ACTIVE', `${state.chatHistory.length / 2 | 0} exchanges`, 'delta-pos');
@@ -985,17 +1055,21 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    function attachSuggestions(aiBubble, fullText) {
+    function attachSuggestions(aiBubble, fullText, directSuggestions = []) {
         const wrapper = aiBubble.querySelector('.bubble-content-wrapper');
-        const suggestions = [];
+        let suggestions = [];
 
-        fullText.split('\n').forEach(line => {
-            if (line.includes('💡 Suggestion:')) {
-                let text = line.replace(/.*💡\s*Suggestion:\s*/, '').trim();
-                text = text.replace(/\*\*/g, '').replace(/\*/g, '');
-                if (text) suggestions.push(text);
-            }
-        });
+        if (directSuggestions && directSuggestions.length > 0) {
+            suggestions = directSuggestions;
+        } else if (fullText) {
+            fullText.split('\n').forEach(line => {
+                if (line.includes('💡 Suggestion:') || line.includes('SUGGESTION:')) {
+                    let text = line.replace(/.*(?:💡\s*Suggestion:|SUGGESTION:)\s*/i, '').trim();
+                    text = text.replace(/\*\*/g, '').replace(/\*/g, '');
+                    if (text) suggestions.push(text);
+                }
+            });
+        }
 
         if (!suggestions.length) return;
 
@@ -1102,4 +1176,12 @@ document.addEventListener('DOMContentLoaded', () => {
             showToast('Failed to clear session.', 'error');
         }
     });
+
+    window.CortexApp = {
+        state,
+        showToast,
+        openIngestionModal,
+        closeIngestionModal
+    };
 });
+

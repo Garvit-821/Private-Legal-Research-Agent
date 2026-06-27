@@ -112,14 +112,43 @@ def cosine_similarity(v1: List[float], v2: List[float]) -> float:
 
 def extract_suggestions(text: str) -> List[str]:
     suggestions: List[str] = []
-    for line in text.splitlines():
-        match = re.match(r"^(?:SUGGESTION:|💡\s*Suggestion:)\s*(.+)$", line.strip(), re.IGNORECASE)
+    lines = text.splitlines()
+    
+    pattern = re.compile(
+        r"^(?:\d+[\.\)]\s*|[-*•]\s*)?(?:SUGGESTION|💡\s*Suggestion|Follow-up|Next Question|Question|Recommended Question)[\s\d\:\-]*\s*(.+)$",
+        re.IGNORECASE
+    )
+    
+    for line in lines:
+        line_s = line.strip()
+        match = pattern.match(line_s)
         if match:
-            question = match.group(1).strip().strip("'\"")
-            if question:
-                suggestions.append(question)
+            q = match.group(1).strip().strip("'\"`*")
+            if len(q) > 5 and q not in suggestions:
+                suggestions.append(q)
+        elif line_s.endswith("?") and ("?" in line_s) and len(line_s) > 12:
+            if any(kw in line_s.lower() for kw in ["how", "what", "why", "can", "could", "would", "is", "are", "does", "explain", "describe", "compare"]):
+                clean_q = re.sub(r"^(?:\d+[\.\)]\s*|[-*•]\s*)", "", line_s).strip().strip("'\"`*")
+                if clean_q not in suggestions and not clean_q.lower().startswith("you are"):
+                    suggestions.append(clean_q)
+
         if len(suggestions) >= 2:
             break
+
+    if len(suggestions) < 2:
+        doc_names = list(runtime.documents.keys())
+        if doc_names:
+            fallbacks = [
+                f"What are the primary findings or metrics detailed in {doc_names[0]}?",
+                f"Can you explain the key risks or liabilities mentioned in {doc_names[0]}?",
+                f"Summarize the core conclusions across the uploaded documents."
+            ]
+            for fb in fallbacks:
+                if fb not in suggestions:
+                    suggestions.append(fb)
+                if len(suggestions) >= 2:
+                    break
+
     return suggestions[:2]
 
 
@@ -128,8 +157,12 @@ def split_answer_and_suggestions(text: str) -> Tuple[str, List[str]]:
         return "", []
     working = text.split(SUGGESTION_DELIMITER, 1)[0] if SUGGESTION_DELIMITER in text else text
     lines = []
+    pattern = re.compile(
+        r"^(?:\d+[\.\)]\s*|[-*•]\s*)?(?:SUGGESTION|💡\s*Suggestion|Follow-up|Next Question|Question|Recommended Question)[\s\d\:\-]*",
+        re.IGNORECASE
+    )
     for line in working.splitlines():
-        if re.match(r"^(?:SUGGESTION:|💡\s*Suggestion:)", line.strip(), re.IGNORECASE):
+        if pattern.match(line.strip()):
             continue
         lines.append(line)
     return "\n".join(lines).strip(), extract_suggestions(text)
@@ -254,60 +287,83 @@ def _embed_chunks(chunks: List[Dict[str, Any]]) -> None:
         chunk["embedding"] = vector
 
 
+def compute_hybrid_score(query_emb: List[float], chunk_emb: List[float], query_terms: List[str], text: str) -> float:
+    v_score = cosine_similarity(query_emb, chunk_emb)
+    if not query_terms:
+        return round(v_score, 4)
+    text_lower = text.lower()
+    kw_raw = 0.0
+    for term in query_terms:
+        count = text_lower.count(term)
+        if count > 0:
+            kw_raw += (1.0 + math.log(count)) * (len(term) ** 0.5)
+    kw_score = min(1.0, kw_raw / 10.0)
+    return round(0.60 * v_score + 0.40 * kw_score, 4)
+
+
 def retrieve_matched_chunks(user_query: str, profile) -> List[Dict[str, Any]]:
     query_lower = user_query.lower()
     is_comparison = any(trigger in query_lower for trigger in COMPARISON_TRIGGERS)
+    summary_keywords = ["summarize", "summary", "overview", "section", "explain", "all", "what is this", "what is the document", "tell me about"]
+    is_summary_query = any(kw in query_lower for kw in summary_keywords)
+
     num_docs = len(runtime.documents)
-    slots = profile.retrieval.comparison_slots_per_doc if is_comparison else profile.retrieval.slots_per_doc
-    total_cap = profile.retrieval.max_total_chunks
+    total_cap = max(profile.retrieval.max_total_chunks, 10)
+    
+    stop_words = {"the", "a", "an", "is", "are", "was", "were", "what", "how", "why", "who", "which", "and", "or", "in", "on", "at", "to", "for", "with", "about", "this", "that", "it"}
+    query_terms = [w for w in re.findall(r"\w+", query_lower) if len(w) > 2 and w not in stop_words]
 
     query_emb = get_embeddings().embed_query(user_query)
-    matched: List[Dict[str, Any]] = []
+    total_chunks_in_session = sum(len(doc.get("chunks", [])) for doc in runtime.documents.values())
 
-    if is_comparison:
-        for _, doc in runtime.documents.items():
-            doc_scored = []
-            for chunk in doc.get("chunks", []):
-                if "embedding" not in chunk:
-                    continue
-                c = {k: v for k, v in chunk.items() if k != "embedding"}
-                c["score"] = round(cosine_similarity(query_emb, chunk["embedding"]), 4)
-                doc_scored.append(c)
-            doc_scored.sort(key=lambda x: x["score"], reverse=True)
-            matched.extend(doc_scored[:slots])
+    # Full-scan / high-capacity mode if single doc, small session, or summary query
+    if num_docs <= 1 or total_chunks_in_session <= total_cap or is_summary_query:
+        slots = max(total_cap, 10)
+    elif is_comparison:
+        slots = max(profile.retrieval.comparison_slots_per_doc, 4)
     else:
-        per_doc_best: Dict[str, List[Dict[str, Any]]] = {}
-        all_scored: List[Dict[str, Any]] = []
-        for fname, doc in runtime.documents.items():
-            doc_scored = []
-            for chunk in doc.get("chunks", []):
-                if "embedding" not in chunk:
-                    continue
-                c = {k: v for k, v in chunk.items() if k != "embedding"}
-                c["score"] = round(cosine_similarity(query_emb, chunk["embedding"]), 4)
-                doc_scored.append(c)
-                all_scored.append(c)
-            doc_scored.sort(key=lambda x: x["score"], reverse=True)
-            per_doc_best[fname] = doc_scored[:slots]
+        slots = max(profile.retrieval.slots_per_doc, 4)
 
-        seen: Set[Tuple[str, int]] = set()
-        for chunks in per_doc_best.values():
-            for c in chunks:
-                key = (c["filename"], c["start_line"])
-                if key not in seen:
-                    matched.append(c)
-                    seen.add(key)
-        all_scored.sort(key=lambda x: x["score"], reverse=True)
-        for c in all_scored:
-            if len(matched) >= max(num_docs * slots, 6):
-                break
+    all_scored: List[Dict[str, Any]] = []
+    per_doc_best: Dict[str, List[Dict[str, Any]]] = {}
+
+    for fname, doc in runtime.documents.items():
+        doc_scored = []
+        for chunk in doc.get("chunks", []):
+            if "embedding" not in chunk:
+                continue
+            c = {k: v for k, v in chunk.items() if k != "embedding"}
+            c["score"] = compute_hybrid_score(query_emb, chunk["embedding"], query_terms, chunk.get("text", ""))
+            doc_scored.append(c)
+            all_scored.append(c)
+        doc_scored.sort(key=lambda x: x["score"], reverse=True)
+        per_doc_best[fname] = doc_scored[:slots]
+
+    matched: List[Dict[str, Any]] = []
+    seen: Set[Tuple[str, int]] = set()
+
+    for chunks in per_doc_best.values():
+        for c in chunks:
             key = (c["filename"], c["start_line"])
             if key not in seen:
                 matched.append(c)
                 seen.add(key)
 
-    matched.sort(key=lambda x: x.get("score", 0), reverse=True)
-    return matched[:total_cap]
+    all_scored.sort(key=lambda x: x["score"], reverse=True)
+    for c in all_scored:
+        if len(matched) >= total_cap and not (num_docs == 1 or total_chunks_in_session <= total_cap):
+            break
+        key = (c["filename"], c["start_line"])
+        if key not in seen:
+            matched.append(c)
+            seen.add(key)
+
+    if num_docs == 1:
+        matched.sort(key=lambda x: x.get("start_line", 0))
+    else:
+        matched.sort(key=lambda x: x.get("score", 0), reverse=True)
+
+    return matched[:max(total_cap, 12 if num_docs == 1 else total_cap)]
 
 
 async def reindex_all_documents() -> Dict[str, Any]:
@@ -459,21 +515,8 @@ async def upload_document(file: UploadFile = File(...)):
         lines = text_content.splitlines()
         chunks = chunk_document(text_content)
         for c in chunks:
-<<<<<<< feature-hallucination-fix
-            c["filename"] = file.filename
-            
-        # Generate embeddings in batch via Ollama
-        if chunks:
-            texts = [c["text"] for c in chunks]
-            embeddings_list = await embeddings.aembed_documents(texts)
-            for chunk, emb in zip(chunks, embeddings_list):
-                chunk["embedding"] = emb
-        
-        # Generate metrics
-=======
             c["filename"] = filename
         _embed_chunks(chunks)
->>>>>>> features
         metrics = {
             "chars": len(text_content),
             "words": len(text_content.split()),
@@ -549,139 +592,10 @@ async def clear_document():
 async def chat_interaction(payload: ChatRequestLegacy):
     if not runtime.documents:
         raise HTTPException(status_code=400, detail="No documents have been uploaded yet.")
-<<<<<<< feature-hallucination-fix
-        
-    user_query = payload.message
-    
-    try:
-        num_docs = len(doc_state.documents)
-        query_lower = user_query.lower()
-
-        # 1. Determine if query needs a broad, cross-document scan.
-        # This includes comparisons, section-specific queries, financial queries, etc.
-        COMPARISON_TRIGGERS = {
-            "compare", "comparison", "differentiate", "difference", "differences",
-            "contrast", "versus", "vs", "both", "all documents", "all files",
-            "summarize all", "overview", "which is better", "what are the differences",
-            "how do they differ", "tell me about both", "explain both", "analyze both",
-            "review both", "section", "section 1", "section 2", "section 3", "section 4",
-            "revenue", "financial", "total", "income", "fees", "loss", "profit",
-            "ancillary", "platform", "summarize", "summary", "across",
-        }
-        is_comparison = any(trigger in query_lower for trigger in COMPARISON_TRIGGERS)
-
-        # 2. Smart context strategy:
-        # For small document sets (combined raw text under 8000 chars), inject the
-        # FULL raw text of every document directly. This completely bypasses
-        # chunk retrieval scoring errors and guarantees the model sees every line.
-        total_raw_chars = sum(len(doc["content"]) for doc in doc_state.documents.values())
-        FULL_DOC_THRESHOLD = 8000  # chars
-        use_full_docs = total_raw_chars <= FULL_DOC_THRESHOLD
-
-        matched_chunks: List[Dict[str, Any]] = []
-
-        if use_full_docs:
-            # Inject complete document text with per-line file annotations.
-            # This makes it impossible for the model to lose track of which
-            # file a fact belongs to, even within long passages.
-            context_parts = []
-            for fname, doc in doc_state.documents.items():
-                annotated_lines = []
-                for line in doc["content"].splitlines():
-                    if line.strip():
-                        annotated_lines.append(f"[{fname}] {line}")
-                    else:
-                        annotated_lines.append("")
-                annotated_content = "\n".join(annotated_lines)
-                context_parts.append(
-                    f"=== FULL DOCUMENT: {fname} ===\n{annotated_content}\n=== END OF DOCUMENT: {fname} ==="
-                )
-                # Also provide chunk metadata for frontend line-highlight
-                for chunk in doc["chunks"]:
-                    c = {k: v for k, v in chunk.items() if k != "embedding"}
-                    matched_chunks.append(c)
-            context_str = "\n\n".join(context_parts)
-        elif is_comparison:
-            # Full-scan retrieval: take top 5 chunks per document
-            query_emb = await embeddings.aembed_query(user_query)
-            SCAN_PER_DOC = 5
-            for fname, doc in doc_state.documents.items():
-                doc_scored = []
-                for chunk in doc["chunks"]:
-                    if "embedding" not in chunk:
-                        continue
-                    sim = cosine_similarity(query_emb, chunk["embedding"])
-                    c = chunk.copy()
-                    c["score"] = round(sim, 4)
-                    del c["embedding"]
-                    doc_scored.append(c)
-                doc_scored.sort(key=lambda x: x["score"], reverse=True)
-                matched_chunks.extend(doc_scored[:SCAN_PER_DOC])
-            matched_chunks.sort(key=lambda x: x["score"], reverse=True)
-
-            context_parts = []
-            for c in matched_chunks:
-                context_parts.append(
-                    f"--- FILE: {c['filename']} (Lines {c['start_line']}-{c['end_line']}) ---\n{c['text']}"
-                )
-            context_str = "\n\n".join(context_parts)
-        else:
-            # Standard balanced retrieval
-            query_emb = await embeddings.aembed_query(user_query)
-            SLOTS_PER_DOC = 2
-            TOTAL_SLOTS = max(num_docs * SLOTS_PER_DOC, 6)
-
-            per_doc_best: Dict[str, List[Dict[str, Any]]] = {}
-            all_scored: List[Dict[str, Any]] = []
-
-            for fname, doc in doc_state.documents.items():
-                doc_scored = []
-                for chunk in doc["chunks"]:
-                    if "embedding" not in chunk:
-                        continue
-                    sim = cosine_similarity(query_emb, chunk["embedding"])
-                    c = chunk.copy()
-                    c["score"] = round(sim, 4)
-                    del c["embedding"]
-                    doc_scored.append(c)
-                    all_scored.append(c)
-                doc_scored.sort(key=lambda x: x["score"], reverse=True)
-                per_doc_best[fname] = doc_scored[:SLOTS_PER_DOC]
-
-            guaranteed: List[Dict[str, Any]] = []
-            seen_ids: set = set()
-            for fname, chunks in per_doc_best.items():
-                for c in chunks:
-                    key = (c["filename"], c["start_line"])
-                    if key not in seen_ids:
-                        guaranteed.append(c)
-                        seen_ids.add(key)
-
-            all_scored.sort(key=lambda x: x["score"], reverse=True)
-            for c in all_scored:
-                if len(guaranteed) >= TOTAL_SLOTS:
-                    break
-                key = (c["filename"], c["start_line"])
-                if key not in seen_ids:
-                    guaranteed.append(c)
-                    seen_ids.add(key)
-
-            matched_chunks = sorted(guaranteed, key=lambda x: x["score"], reverse=True)
-
-            context_parts = []
-            for c in matched_chunks:
-                context_parts.append(
-                    f"--- FILE: {c['filename']} (Lines {c['start_line']}-{c['end_line']}) ---\n{c['text']}"
-                )
-            context_str = "\n\n".join(context_parts)
-
-        print(f"[RETRIEVAL] use_full_docs={use_full_docs}, total_raw_chars={total_raw_chars}, chunks_sent={len(matched_chunks)}")
-=======
 
     profile = get_chat_profile(runtime.chat_agent_id)
     if not profile:
         raise HTTPException(status_code=500, detail="Active chat agent profile is not configured.")
->>>>>>> features
 
     user_query = payload.message.strip()
     if not user_query:
@@ -701,43 +615,16 @@ async def chat_interaction(payload: ChatRequestLegacy):
     ]
     context_str = "\n\n---\n\n".join(context_parts)
     matched_chunks, budget = apply_chunk_budget(matched_chunks, profile, context_str, trimmed)
+    context_parts = [
+        f"[Document: {c['filename']}, Lines {c['start_line']}-{c['end_line']}]:\n{c['text']}"
+        for c in matched_chunks
+    ]
+    context_str = "\n\n---\n\n".join(context_parts)
     trimmed = shrink_history_for_budget(trimmed, profile, context_str, profile.context_window_tokens)
 
     doc_names = ", ".join(runtime.documents.keys())
     num_docs = len(runtime.documents)
     system_prompt = (
-<<<<<<< feature-hallucination-fix
-        f"You are an expert AI Document Analyst. You are analyzing {num_docs} document(s): {doc_names}.\n"
-        f"The FULL content of every document is provided below. Read each document carefully before answering.\n\n"
-        "--- BEGIN DOCUMENT CONTEXT ---\n"
-        f"{context_str}\n"
-        "--- END DOCUMENT CONTEXT ---\n\n"
-        "CRITICAL RULES — you MUST follow these exactly:\n"
-        "1. Each document section is clearly labeled with === FULL DOCUMENT: [filename] ===. Read EACH document separately and carefully.\n"
-        "2. ATTRIBUTION IS MANDATORY: For every single fact or number you state, you MUST prefix it with the EXACT filename it came from (e.g. 'According to sample-#1.txt, ...'). Cross-check the label before attributing.\n"
-        "3. NEVER copy the same content for two different files. If two documents have different values for the same metric, report them separately with correct file labels.\n"
-        "4. When comparing documents, structure your response as clear per-file paragraphs. Do not merge data from different files into one paragraph.\n"
-        "5. If a piece of information exists in one document but NOT in another, report what you found and state which file does not contain that information.\n"
-        "6. Only use information explicitly written in the documents. Do not invent, estimate, or extrapolate any data.\n"
-        "7. If the requested information is completely absent from ALL documents, reply with exactly: \"I cannot find that in the documents.\"\n"
-        "8. End every response with exactly 2 follow-up questions on new lines, each starting with \"💡 Suggestion: \". Do not add headers."
-    )
-
-    # 7. Assemble chat history (trim to last 4 turns to keep context window free)
-    chat_history = []
-    trimmed_history = payload.history[-4:]
-    for msg in trimmed_history:
-        if msg.role == "user":
-            chat_history.append(HumanMessage(content=msg.content))
-        elif msg.role == "assistant":
-            chat_history.append(AIMessage(content=msg.content))
-
-    # Create LangChain template
-    prompt_template = ChatPromptTemplate.from_messages([
-        SystemMessage(content=system_prompt),
-        MessagesPlaceholder(variable_name="chat_history"),
-        ("human", "{user_input}")
-=======
         f"You are a strict, fact-based AI Document Assistant analyzing {num_docs} document(s): {doc_names}.\n"
         f"Active agent: {profile.display_name}.\n\n"
         "--- DOCUMENT CONTEXT START ---\n"
@@ -757,55 +644,10 @@ async def chat_interaction(payload: ChatRequestLegacy):
         SystemMessage(content=system_prompt),
         MessagesPlaceholder(variable_name="chat_history"),
         ("human", "{user_input}"),
->>>>>>> features
     ])
 
     async def response_generator():
         try:
-<<<<<<< feature-hallucination-fix
-            # Initialize Ollama model
-            llm = ChatOllama(
-                model="qwen2.5:3b",
-                temperature=0.1,
-                num_predict=768,
-                num_ctx=8192
-            )
-            
-            formatted_prompt = prompt_template.format_messages(
-                chat_history=chat_history,
-                user_input=user_query
-            )
-            
-            # Send matched chunks metadata first so the frontend can immediately highlight lines
-            yield f"data: {json.dumps({'type': 'metadata', 'chunks': matched_chunks})}\n\n"
-            
-            # Gather the full response
-            full_response = ""
-            async for chunk in llm.astream(formatted_prompt):
-                if chunk.content:
-                    full_response += chunk.content
-            
-            # Clean the response using our helper
-            print("--- RAW FULL RESPONSE FROM OLLAMA ---")
-            print(repr(full_response))
-            print("-------------------------------------")
-            cleaned_response = clean_response(full_response)
-            
-            # Stream the cleaned response in chunks to simulate streaming
-            import asyncio
-            chunk_size = 8
-            for i in range(0, len(cleaned_response), chunk_size):
-                sub_chunk = cleaned_response[i:i+chunk_size]
-                yield f"data: {json.dumps({'type': 'token', 'text': sub_chunk})}\n\n"
-                await asyncio.sleep(0.01)
-                
-            yield "data: [DONE]\n\n"
-            
-        except Exception as e:
-            # Send error details via stream
-            yield f"data: {json.dumps({'type': 'error', 'detail': str(e)})}\n\n"
-            yield "data: [DONE]\n\n"
-=======
             llm = get_chat_llm(profile)
             formatted_prompt = prompt_template.format_messages(chat_history=chat_history, user_input=user_query)
 
@@ -860,7 +702,6 @@ async def chat_interaction(payload: ChatRequestLegacy):
             yield sse_line("chat.done", {"agent_id": profile.id, "answer_preview": answer[:200]})
         except Exception as exc:
             yield sse_line("chat.error", error=ApiError(code="INFERENCE_FAILED", message=str(exc)))
->>>>>>> features
 
     return StreamingResponse(response_generator(), media_type="text/event-stream")
 

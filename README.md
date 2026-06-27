@@ -55,14 +55,14 @@ Documents are chunked with line traceability, embedded with a dedicated embeddin
 
 ---
 
-## Features
-
 | | What it does |
 |---|---|
+| **Spatial Whiteboard** | Interactive 2D infinite canvas (mind map) with drag-and-drop nodes, manual sticky notes, interactive directional arrow connectors, and SVG bezier curves |
+| **Hybrid Retrieval** | 60/40 blend of embedding vector similarity and TF-IDF keyword overlap with full-scan support |
 | **Agent Picker** | Select chat model by hardware compatibility; Recommended / Installed / Library tabs |
 | File upload | `.txt`, `.md`, `.pdf`, `.docx` via drag-and-drop or file browser |
 | Multi-document | Load up to 5 files; tab bar, context banner, per-file delete |
-| Retrieval | Embedding search with per-agent chunk limits |
+| Retrieval | Hybrid search with per-agent chunk limits and full-scan abstract summaries |
 | Comparison mode | Keywords like `compare`, `versus`, `both documents` trigger expanded per-file retrieval |
 | Chat | SSE streaming (`chat.token`) with thinking/streaming session states |
 | Citations | `filename: L12–45` badges; click to jump to cited lines |
@@ -788,7 +788,8 @@ flowchart LR
 - [x] JSON API contract v1
 - [x] Dedicated embedding model (`nomic-embed-text`)
 - [x] 10-message history cap
-- [ ] Hybrid TF-IDF + embedding retrieval
+- [x] Hybrid TF-IDF + embedding retrieval with full-scan mode
+- [x] Spatial Whiteboard Mode (2D Mind Mapping Canvas)
 - [ ] Environment-variable UI for embed model + reindex flow
 - [ ] Docker setup
 - [ ] Automated tests for agent compatibility and budget
