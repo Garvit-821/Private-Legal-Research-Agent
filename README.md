@@ -6,7 +6,6 @@ Local document Q&A tool. Upload one or more files, ask questions, and get answer
 [![Python 3.10+](https://img.shields.io/badge/Python-3.10%2B-blue)](https://www.python.org/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.100%2B-009688)](https://fastapi.tiangolo.com/)
 
-**Branch:** `feature/agent-picker` (multi-document web UI + Agent Picker)  
 **Repo:** [Garvit-821/Local-ollama-powered-ai-assisted-doc-analyzer](https://github.com/Garvit-821/Local-ollama-powered-ai-assisted-doc-analyzer)
 
 ---
