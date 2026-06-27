@@ -789,10 +789,10 @@ flowchart LR
 - [x] 10-message history cap
 - [x] Hybrid TF-IDF + embedding retrieval with full-scan mode
 - [x] Spatial Whiteboard Mode (2D Mind Mapping Canvas)
-- [ ] Environment-variable UI for embed model + reindex flow
-- [ ] Docker setup
-- [ ] Automated tests for agent compatibility and budget
-- [ ] Mobile layout
+- [x] Environment-variable UI for embed model + reindex flow
+- [x] Docker setup
+- [x] Automated tests for agent compatibility and budget
+- [x] Mobile layout
 
 ---
 
