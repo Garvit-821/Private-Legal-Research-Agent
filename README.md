@@ -824,9 +824,14 @@ Thank you to the following people who have contributed to this project:
 ## License
 
 MIT License — see [LICENSE](LICENSE).
-Project marked as Completed [x]
+
 ```
 Copyright (c) 2026 Garvit Prakash
 ```
+```
+Project Completed
+```
+
+
 
 Issues: [GitHub Issues](https://github.com/Garvit-821/Local-ollama-powered-ai-assisted-doc-analyzer/issues)
