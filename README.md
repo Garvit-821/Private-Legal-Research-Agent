@@ -824,7 +824,7 @@ Thank you to the following people who have contributed to this project:
 ## License
 
 MIT License — see [LICENSE](LICENSE).
-
+Project marked as Completed [x]
 ```
 Copyright (c) 2026 Garvit Prakash
 ```
