@@ -828,9 +828,6 @@ MIT License — see [LICENSE](LICENSE).
 ```
 Copyright (c) 2026 Garvit Prakash
 ```
-```
-Project Completed
-```
 
 
 
