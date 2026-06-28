@@ -470,7 +470,7 @@ ollama pull mistral:7b
 ```bash
 git clone https://github.com/Garvit-821/Local-ollama-powered-ai-assisted-doc-analyzer.git
 cd Local-ollama-powered-ai-assisted-doc-analyzer
-git checkout feature/agent-picker
+
 ```
 
 ---
@@ -482,7 +482,7 @@ git checkout feature/agent-picker
 ```powershell
 python -m venv venv
 .\venv\Scripts\Activate.ps1
-pip install -r requirements.txt
+pip install langchain-community langchain-ollama langchain-core fastapi uvicorn python-multipart python-docx pypdf
 ```
 
 #### Linux / macOS
@@ -490,7 +490,8 @@ pip install -r requirements.txt
 ```bash
 python3 -m venv venv
 source venv/bin/activate
-pip install -r requirements.txt
+pip install langchain-community langchain-ollama langchain-core fastapi uvicorn python-multipart python-docx pypdf
+
 ```
 
 ---
@@ -513,11 +514,11 @@ ollama pull nomic-embed-text
 
 git clone https://github.com/Garvit-821/Local-ollama-powered-ai-assisted-doc-analyzer.git
 cd Local-ollama-powered-ai-assisted-doc-analyzer
-git checkout feature/agent-picker
+
 
 python -m venv venv
 .\venv\Scripts\Activate.ps1
-pip install -r requirements.txt
+pip install langchain-community langchain-ollama langchain-core fastapi uvicorn python-multipart python-docx pypdf
 python -m uvicorn backend:app --host 127.0.0.1 --port 8000 --reload
 ```
 
