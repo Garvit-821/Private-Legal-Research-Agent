@@ -7,7 +7,7 @@ from typing import List, Dict, Any, Optional, Set, Tuple
 
 from fastapi import FastAPI, UploadFile, File, HTTPException, Body
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -888,6 +888,13 @@ async def analyze_precedents(req: LegalPrecedentRequest):
 async def get_document_legacy():
     response = await get_document()
     return response
+
+
+@app.get("/")
+async def serve_landing_page():
+    if os.path.exists("static/landing.html"):
+        return FileResponse("static/landing.html")
+    return FileResponse("static/index.html")
 
 
 if os.path.exists("static"):

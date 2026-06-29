@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Documentation Hub — Legal Cortex Enterprise</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="styles.css?v=4.0">
+</head>
+<body class="docs-body">
+    <!-- DOCS HEADER -->
+    <header class="docs-header">
+        <div class="docs-nav-container">
+            <a href="landing.html" class="brand-logo">
+                <i class="fa-solid fa-scale-balanced logo-icon-primary"></i>
+                <span class="brand-name">LEGAL-CORTEX</span>
+                <span class="docs-tag">DOCS</span>
+            </a>
+            <div class="docs-header-actions">
+                <a href="landing.html" class="btn-secondary btn-sm"><i class="fa-solid fa-house"></i> Landing Page</a>
+                <a href="index.html" class="btn-primary btn-sm"><i class="fa-solid fa-rocket"></i> Launch Workspace</a>
+            </div>
+        </div>
+    </header>
+
+    <div class="docs-layout">
+        <!-- STICKY SIDEBAR -->
+        <aside class="docs-sidebar">
+            <nav class="docs-menu">
+                <div class="menu-category">Getting Started</div>
+                <a href="#overview" class="menu-item active"><i class="fa-solid fa-book"></i> Overview</a>
+                <a href="#quickstart" class="menu-item"><i class="fa-solid fa-bolt"></i> Quickstart Guide</a>
+                <a href="#constitution" class="menu-item"><i class="fa-solid fa-building-columns"></i> Constitution Pre-Loading</a>
+
+                <div class="menu-category">Legal Suite Modules</div>
+                <a href="#drafting" class="menu-item"><i class="fa-solid fa-file-signature"></i> Drafting Engine</a>
+                <a href="#statute" class="menu-item"><i class="fa-solid fa-book-bookmark"></i> Statute Intelligence</a>
+                <a href="#predict" class="menu-item"><i class="fa-solid fa-crystal-ball"></i> Conclusion Prediction</a>
+                <a href="#precedents" class="menu-item"><i class="fa-solid fa-scale-balanced"></i> Precedent Synthesis</a>
+
+                <div class="menu-category">Technical Architecture</div>
+                <a href="#architecture" class="menu-item"><i class="fa-solid fa-network-wired"></i> Two-Plane AI Engine</a>
+                <a href="#hardware" class="menu-item"><i class="fa-solid fa-microchip"></i> Hardware Acceleration</a>
+                <a href="#api" class="menu-item"><i class="fa-solid fa-code"></i> API & SSE Contracts</a>
+
+                <div class="menu-category">Enterprise & Pricing</div>
+                <a href="#tiers" class="menu-item"><i class="fa-solid fa-tags"></i> Plan Comparison</a>
+                <a href="#enterprise" class="menu-item"><i class="fa-solid fa-server"></i> On-Prem Deployment</a>
+            </nav>
+        </aside>
+
+        <!-- MAIN DOCS CONTENT -->
+        <main class="docs-content">
+            <!-- SECTION: OVERVIEW -->
+            <section id="overview" class="docs-section">
+                <h1>Legal Cortex Technical Documentation</h1>
+                <p class="lead-text">Comprehensive guide for advocates, legal researchers, and system administrators operating Legal Cortex Enterprise.</p>
+
+                <div class="docs-callout note">
+                    <i class="fa-solid fa-shield-halved"></i>
+                    <div>
+                        <strong>Confidentiality Guarantee:</strong> Legal Cortex runs 100% locally via Ollama. All document chunking, embeddings, and chat inference occur on your machine or private firm server. No external network requests are executed.
+                    </div>
+                </div>
+
+                <h2>System Purpose</h2>
+                <p>Legal Cortex transforms standard hardware into a high-speed legal workstation for Indian Jurisprudence. It automates procedural pleading drafts, interprets complex statutes, evaluates case facts for litigation win probabilities, and synthesizes Supreme Court precedents.</p>
+            </section>
+
+            <!-- SECTION: QUICKSTART -->
+            <section id="quickstart" class="docs-section">
+                <h2>Quickstart Guide</h2>
+                <ol class="docs-steps">
+                    <li>
+                        <strong>Launch Local Ollama Service</strong>
+                        <p>Ensure Ollama is active on <code>http://localhost:11434</code> and pull required models:</p>
+                        <pre><code>ollama pull qwen2.5:3b
+ollama pull nomic-embed-text</code></pre>
+                    </li>
+                    <li>
+                        <strong>Start Backend Application</strong>
+                        <p>Activate python environment and run server script:</p>
+                        <pre><code>python3 backend.py</code></pre>
+                    </li>
+                    <li>
+                        <strong>Access Legal Workspace</strong>
+                        <p>Navigate to <code>http://127.0.0.1:8000/index.html</code> in your browser.</p>
+                    </li>
+                </ol>
+            </section>
+
+            <!-- SECTION: CONSTITUTION -->
+            <section id="constitution" class="docs-section">
+                <h2>Constitution of India Auto-Ingestion</h2>
+                <p>Upon server launch, an asynchronous background thread automatically parses <code>Data/Constituion Of India/Constitution Of India.pdf</code>. This loads fundamental rights, directive principles, and writ jurisdiction into memory without blocking web server startup.</p>
+            </section>
+
+            <!-- SECTION: DRAFTING ENGINE -->
+            <section id="drafting" class="docs-section">
+                <h2>Drafting Engine Guide</h2>
+                <p>The Drafting Engine utilizes specialized prompts forcing Indian courtroom formatting (e.g. <em>"IN THE COURT OF..."</em>, prayer clauses, and undertaking affidavits).</p>
+                
+                <h3>Supported Templates & Fields</h3>
+                <table class="docs-table">
+                    <thead>
+                        <tr>
+                            <th>Template Type</th>
+                            <th>Statutory Basis</th>
+                            <th>Required Input Fields</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td><strong>Bail Application</strong></td>
+                            <td>Sec. 437/439 CrPC</td>
+                            <td>Accused Name, Court Name, FIR No. & PS, Offence Sections, Key Grounds</td>
+                        </tr>
+                        <tr>
+                            <td><strong>Legal Notice</strong></td>
+                            <td>Civil Procedure Code</td>
+                            <td>Sender Client, Recipient Details, Cause of Action, Relief Demanded, Notice Days</td>
+                        </tr>
+                        <tr>
+                            <td><strong>Written Statement</strong></td>
+                            <td>Order VIII CPC</td>
+                            <td>Defendant Name, Plaintiff Name & Suit No., Court Name, Preliminary Objections</td>
+                        </tr>
+                        <tr>
+                            <td><strong>Employment Contract</strong></td>
+                            <td>Indian Contract Act</td>
+                            <td>Employer Name, Employee Name, Role Title, CTC Remuneration, Notice Period</td>
+                        </tr>
+                        <tr>
+                            <td><strong>RTI Application</strong></td>
+                            <td>Sec. 6 RTI Act 2005</td>
+                            <td>Applicant Details, Public Authority, Specific Info Sought, Target Period</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </section>
+
+            <!-- SECTION: HARDWARE -->
+            <section id="hardware" class="docs-section">
+                <h2>Hardware Acceleration & Model Matrix</h2>
+                <p>Legal Cortex dynamically benchmarks your host hardware (RAM, VRAM, GPU presence) via <code>psutil</code> and <code>nvidia-smi</code> to categorize models in the Agent Picker.</p>
+
+                <table class="docs-table">
+                    <thead>
+                        <tr>
+                            <th>Model Tag</th>
+                            <th>Tier</th>
+                            <th>Min RAM</th>
+                            <th>Min VRAM</th>
+                            <th>Plan Availability</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td><code>qwen2.5:3b</code></td>
+                            <td>Lightweight</td>
+                            <td>8 GB</td>
+                            <td>4 GB</td>
+                            <td><span class="tag-green">Starter Free & Pro</span></td>
+                        </tr>
+                        <tr>
+                            <td><code>gemma2:2b</code></td>
+                            <td>Lightweight</td>
+                            <td>8 GB</td>
+                            <td>4 GB</td>
+                            <td><span class="tag-green">Starter Free & Pro</span></td>
+                        </tr>
+                        <tr>
+                            <td><code>llama3.1:8b</code></td>
+                            <td>Balanced</td>
+                            <td>16 GB</td>
+                            <td>8 GB</td>
+                            <td><span class="tag-gold">Pro Law Firm Only</span></td>
+                        </tr>
+                        <tr>
+                            <td><code>mistral:7b</code></td>
+                            <td>Balanced</td>
+                            <td>16 GB</td>
+                            <td>6 GB</td>
+                            <td><span class="tag-gold">Pro Law Firm Only</span></td>
+                        </tr>
+                        <tr>
+                            <td><code>llama3.1:70b</code></td>
+                            <td>Heavy Enterprise</td>
+                            <td>64 GB</td>
+                            <td>24 GB+</td>
+                            <td><span class="tag-purple">Enterprise On-Prem Rack</span></td>
+                        </tr>
+                    </tbody>
+                </table>
+            </section>
+
+            <!-- SECTION: API -->
+            <section id="api" class="docs-section">
+                <h2>API Contracts & Endpoints</h2>
+                <p>All endpoints enforce JSON schema v1 envelopes with standard error payloads.</p>
+                <pre><code>POST /api/legal/draft
+POST /api/legal/statute
+POST /api/legal/predict
+POST /api/legal/precedents</code></pre>
+            </section>
+        </main>
+    </div>
+</body>
+</html>
