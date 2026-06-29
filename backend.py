@@ -706,6 +706,183 @@ async def chat_interaction(payload: ChatRequestLegacy):
     return StreamingResponse(response_generator(), media_type="text/event-stream")
 
 
+# ==========================================================================
+# LEGAL CORTEX SPECIALIZED ENDPOINTS
+# ==========================================================================
+
+class LegalDraftRequest(BaseModel):
+    template_type: str
+    facts: Dict[str, Any]
+
+
+class LegalStatuteRequest(BaseModel):
+    query: str
+
+
+class LegalPredictRequest(BaseModel):
+    facts: str
+
+
+class LegalPrecedentRequest(BaseModel):
+    issue: str
+
+
+@app.on_event("startup")
+async def auto_ingest_constitution():
+    import threading
+    def _ingest_constitution_sync():
+        const_path = os.path.join("Data", "Constituion Of India", "Constitution Of India.pdf")
+        if os.path.exists(const_path):
+            try:
+                with open(const_path, "rb") as f:
+                    content_bytes = f.read()
+                filename = "Constitution Of India.pdf"
+                text = extract_text_from_bytes(filename, content_bytes)
+                if text:
+                    chunks = chunk_document(text)
+                    _embed_chunks(chunks)
+                    words = len(text.split())
+                    runtime.documents[filename] = {
+                        "filename": filename,
+                        "content": text,
+                        "lines": text.splitlines(),
+                        "word_count": words,
+                        "chunks": chunks,
+                    }
+                    if not runtime.active_filename:
+                        runtime.active_filename = filename
+                    print(f"[Startup] Automatically ingested {filename} ({len(chunks)} chunks, {words} words).")
+            except Exception as e:
+                print(f"[Startup] Failed to auto-ingest Constitution of India: {e}")
+    
+    print("[Startup] Starting background task to ingest Constitution of India...")
+    threading.Thread(target=_ingest_constitution_sync, daemon=True).start()
+
+
+@app.post("/api/legal/draft")
+async def generate_legal_draft(req: LegalDraftRequest):
+    profile = get_chat_profile(runtime.chat_agent_id)
+    llm = get_chat_llm(profile)
+    
+    templates_prompts = {
+        "bail_application": "Draft a formal Bail Application under Section 437/439 CrPC for Indian Courts based on these facts:",
+        "legal_notice": "Draft a formal Legal Notice before litigation under Indian Law based on these facts:",
+        "written_statement": "Draft a Written Statement / Counter Statement in response to a suit based on these facts:",
+        "employment_contract": "Draft a comprehensive Employment Contract under Indian Employment Law based on these facts:",
+        "rti_request": "Draft a formal RTI (Right to Information) Application under Section 6 of RTI Act 2005 based on these facts:"
+    }
+    
+    base_prompt = templates_prompts.get(req.template_type, "Draft a formal legal document based on these facts:")
+    facts_str = json.dumps(req.facts, indent=2)
+    
+    system_instruction = (
+        "You are Legal Cortex, an elite AI legal draftsman specializing in Indian Law. "
+        "Generate a complete, professionally formatted legal draft using standard legal language, clauses, and court placeholders (e.g. IN THE COURT OF...). "
+        "Ensure proper section headings and formal prayer/relief clauses."
+    )
+    
+    prompt = f"{system_instruction}\n\n{base_prompt}\n{facts_str}\n\nProvide the complete legal draft in markdown formatting:"
+    
+    try:
+        response = await llm.ainvoke([HumanMessage(content=prompt)])
+        return json_ok("legal.draft", {"draft": response.content})
+    except Exception as exc:
+        return json_fail("legal.draft_error", "DRAFTING_FAILED", str(exc), status_code=500)
+
+
+@app.post("/api/legal/statute")
+async def lookup_statute(req: LegalStatuteRequest):
+    profile = get_chat_profile(runtime.chat_agent_id)
+    llm = get_chat_llm(profile)
+    
+    query = req.query.strip()
+    
+    # RAG search across loaded documents (including Constitution)
+    context_chunks = []
+    if runtime.documents:
+        try:
+            q_emb = get_embeddings().embed_query(query)
+            q_terms = [t for t in re.findall(r"\w+", query.lower()) if len(t) > 2]
+            all_chunks = []
+            for doc_data in runtime.documents.values():
+                for c in doc_data.get("chunks", []):
+                    if "embedding" in c:
+                        score = compute_hybrid_score(q_emb, c["embedding"], q_terms, c["text"])
+                        all_chunks.append((score, c["text"]))
+            all_chunks.sort(key=lambda x: x[0], reverse=True)
+            context_chunks = [c[1] for c in all_chunks[:3] if c[0] > 0.3]
+        except Exception:
+            pass
+
+    context_str = "\n\n".join(context_chunks) if context_chunks else "No specific document context match."
+    
+    prompt = (
+        f"You are Legal Cortex Statute Intelligence Engine.\n"
+        f"User Query: '{query}'\n\n"
+        f"Reference Context from loaded statutes/Constitution:\n{context_str}\n\n"
+        f"Provide a structured analysis with the following sections:\n"
+        f"1. **Verbatim / Exact Text**: State the statutory section or constitutional article text.\n"
+        f"2. **Plain-English Explanation**: Explain what this law means in clear terms.\n"
+        f"3. **Key Ingredients / Elements**: List the essential legal requirements to satisfy this section.\n"
+        f"4. **Punishment / Consequence / Application**: State the applicable penalty or legal remedy."
+    )
+    
+    try:
+        response = await llm.ainvoke([HumanMessage(content=prompt)])
+        return json_ok("legal.statute", {"analysis": response.content})
+    except Exception as exc:
+        return json_fail("legal.statute_error", "STATUTE_LOOKUP_FAILED", str(exc), status_code=500)
+
+
+@app.post("/api/legal/predict")
+async def predict_conclusion(req: LegalPredictRequest):
+    profile = get_chat_profile(runtime.chat_agent_id)
+    llm = get_chat_llm(profile)
+    
+    facts = req.facts.strip()
+    
+    prompt = (
+        f"You are Legal Cortex Predictive Litigation Intelligence AI.\n"
+        f"Analyze the following factual scenario under Indian Jurisprudence:\n\n"
+        f"Facts: {facts}\n\n"
+        f"Provide a strategic legal predictive report structured as follows:\n"
+        f"1. **Likely Legal Outcome & Win Probability Estimate**: (e.g. Favorable / Unfavorable / High Risk).\n"
+        f"2. **Core Legal Strengths**: Key facts and legal statutory provisions supporting the party.\n"
+        f"3. **Critical Vulnerabilities & Weaknesses**: Potential counterarguments or evidentiary gaps.\n"
+        f"4. **Recommended Strategic Next Steps**: Actionable legal remedies or procedural steps."
+    )
+    
+    try:
+        response = await llm.ainvoke([HumanMessage(content=prompt)])
+        return json_ok("legal.predict", {"prediction": response.content})
+    except Exception as exc:
+        return json_fail("legal.predict_error", "PREDICTION_FAILED", str(exc), status_code=500)
+
+
+@app.post("/api/legal/precedents")
+async def analyze_precedents(req: LegalPrecedentRequest):
+    profile = get_chat_profile(runtime.chat_agent_id)
+    llm = get_chat_llm(profile)
+    
+    issue = req.issue.strip()
+    
+    prompt = (
+        f"You are Legal Cortex Judicial Precedent & Case Law Synthesis AI.\n"
+        f"Analyze landmark precedents and established doctrines of the Supreme Court of India and High Courts for this issue:\n\n"
+        f"Legal Issue / Facts: {issue}\n\n"
+        f"Provide a structured precedent synthesis:\n"
+        f"1. **Landmark Rulings & Ratio Decidendi**: Cite key landmark judgments, ratio, and legal principles.\n"
+        f"2. **Established Legal Doctrines**: Applicable constitutional or statutory interpretation tests.\n"
+        f"3. **Judicial Distinctions**: How courts differentiate similar fact patterns."
+    )
+    
+    try:
+        response = await llm.ainvoke([HumanMessage(content=prompt)])
+        return json_ok("legal.precedents", {"precedents": response.content})
+    except Exception as exc:
+        return json_fail("legal.precedents_error", "PRECEDENT_ANALYSIS_FAILED", str(exc), status_code=500)
+
+
 # Backward-compatible document responses for legacy frontend fields
 @app.get("/api/document/legacy")
 async def get_document_legacy():

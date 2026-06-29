@@ -7,12 +7,13 @@
     <title>Local-Cortex</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@700;800;900&family=Inter:ital,wght@0,300;0,400;0,500;0,600;0,700;0,800;0,900;1,400&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,300;0,400;0,500;0,600;0,700;0,800;0,900;1,400&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link rel="stylesheet" href="styles.css?v=3.0">
     <script src="contracts.js?v=3.0"></script>
     <script src="whiteboard.js?v=3.0" defer></script>
     <script src="agent-picker.js?v=3.0" defer></script>
+    <script src="legal-suite.js?v=3.0" defer></script>
     <script src="app.js?v=3.0" defer></script>
   
 </head>
@@ -26,16 +27,19 @@
         <header class="top-header">
             <div class="brand-section">
                 <div class="logo-pulse">
-                    <i class="fa-solid fa-brain logo-icon"></i>
+                    <i class="fa-solid fa-scale-balanced logo-icon"></i>
                     <span class="pulse-ring"></span>
                     <span class="pulse-ring delay"></span>
                 </div>
                 <div class="title-meta">
-                    <h1>LOCAL-CORTEX</h1>
-                    <p class="subtitle">OPEN-SOURCE LOCAL INTELLIGENCE ENGINE</p>
+                    <h1>LEGAL-CORTEX</h1>
+                    <p class="subtitle">PRIVATE LEGAL RESEARCH AGENT</p>
                 </div>
             </div>
             <div class="header-actions">
+                <button class="btn-primary btn-sm btn-legal-suite-trigger" id="btnOpenLegalSuite" title="Open Legal Intelligence Suite">
+                    <i class="fa-solid fa-gavel"></i> Legal Tools
+                </button>
                 <div class="view-mode-switcher">
                     <button class="btn-view-mode active" id="btnViewCockpit" title="Cockpit Split View">
                         <i class="fa-solid fa-table-columns"></i> Cockpit
@@ -323,6 +327,107 @@
             <div class="agent-picker-footer">
                 <span class="embed-note">Embedding model: <strong id="embedModelLabel">nomic-embed-text</strong></span>
                 <a href="https://ollama.com/library" target="_blank" rel="noopener noreferrer">Browse Ollama library</a>
+            </div>
+        </div>
+    </div>
+
+    <!-- LEGAL INTELLIGENCE SUITE MODAL -->
+    <div class="modal-overlay hidden" id="legalSuiteModal">
+        <div class="modal-card legal-suite-card">
+            <div class="modal-header">
+                <div class="modal-header-top">
+                    <h2><i class="fa-solid fa-gavel"></i> LEGAL INTELLIGENCE SUITE</h2>
+                    <button class="btn-modal-close" id="btnCloseLegalSuite" title="Dismiss">
+                        <i class="fa-solid fa-xmark"></i>
+                    </button>
+                </div>
+                <p>Automated Legal Drafting, Statute Intelligence, Outcome Prediction & Judicial Precedents</p>
+            </div>
+
+            <div class="legal-suite-tabs">
+                <button class="legal-tab active" data-suite-tab="drafting"><i class="fa-solid fa-file-signature"></i> Drafting Engine</button>
+                <button class="legal-tab" data-suite-tab="statute"><i class="fa-solid fa-book-bookmark"></i> Statute Lookup</button>
+                <button class="legal-tab" data-suite-tab="predict"><i class="fa-solid fa-crystal-ball"></i> Conclusion Prediction</button>
+                <button class="legal-tab" data-suite-tab="precedents"><i class="fa-solid fa-scale-balanced"></i> Precedent Analysis</button>
+            </div>
+
+            <div class="legal-suite-body">
+                <!-- TAB 1: DRAFTING -->
+                <div class="suite-panel active" id="panelDrafting">
+                    <div class="drafting-layout">
+                        <div class="draft-config-pane">
+                            <label class="form-label">Select Legal Template</label>
+                            <select id="selectTemplate" class="form-select">
+                                <option value="bail_application">Bail Application (Sec. 437/439 CrPC)</option>
+                                <option value="legal_notice">Formal Legal Notice</option>
+                                <option value="written_statement">Written Statement / Reply</option>
+                                <option value="employment_contract">Employment Contract</option>
+                                <option value="rti_request">RTI Application (Sec. 6 RTI Act)</option>
+                            </select>
+
+                            <div class="template-facts-form" id="templateFactsForm">
+                                <!-- Dynamic form fields rendered by JS -->
+                            </div>
+
+                            <button class="btn-primary btn-block" id="btnGenerateDraft">
+                                <i class="fa-solid fa-wand-magic-sparkles"></i> Generate Legal Draft
+                            </button>
+                        </div>
+
+                        <div class="draft-output-pane">
+                            <div class="pane-header">
+                                <span><i class="fa-solid fa-file-contract"></i> Generated Draft</span>
+                                <button class="btn-secondary btn-sm" id="btnCopyDraft" title="Copy text"><i class="fa-solid fa-copy"></i> Copy</button>
+                            </div>
+                            <div class="legal-output-content" id="draftOutputContent">
+                                <p class="placeholder-text">Fill in the key facts on the left and click "Generate Legal Draft" to create a standard legal document.</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- TAB 2: STATUTE LOOKUP -->
+                <div class="suite-panel" id="panelStatute">
+                    <div class="search-hero-box">
+                        <input type="text" id="inputStatuteQuery" class="hero-search-input" placeholder="Enter Section or Article (e.g. 'Section 420 IPC', 'Article 21', 'Section 138 NI Act')...">
+                        <button class="btn-primary" id="btnSearchStatute"><i class="fa-solid fa-magnifying-glass"></i> Lookup Law</button>
+                    </div>
+                    <div class="legal-output-card" id="statuteOutputContent">
+                        <p class="placeholder-text">Enter any Indian Penal Code section, Constitutional Article, or statutory provision above to view verbatim text and plain-English analysis.</p>
+                    </div>
+                </div>
+
+                <!-- TAB 3: CONCLUSION PREDICTION -->
+                <div class="suite-panel" id="panelPredict">
+                    <div class="predict-layout">
+                        <div class="predict-input-pane">
+                            <label class="form-label">Case Facts & Evidence Scenario</label>
+                            <textarea id="inputPredictFacts" class="form-textarea" rows="8" placeholder="Describe the factual background, dispute summary, available evidence, and opposing claims..."></textarea>
+                            <button class="btn-primary btn-block" id="btnRunPrediction">
+                                <i class="fa-solid fa-chart-line"></i> Predict Case Outcome
+                            </button>
+                        </div>
+                        <div class="predict-output-pane">
+                            <div class="pane-header">
+                                <span><i class="fa-solid fa-shield-halved"></i> Predictive Analysis Report</span>
+                            </div>
+                            <div class="legal-output-content" id="predictOutputContent">
+                                <p class="placeholder-text">Provide factual case details on the left to generate an AI litigation risk assessment, strengths/weaknesses matrix, and win probability forecast.</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- TAB 4: PRECEDENT ANALYSIS -->
+                <div class="suite-panel" id="panelPrecedents">
+                    <div class="search-hero-box">
+                        <input type="text" id="inputPrecedentIssue" class="hero-search-input" placeholder="Describe legal issue or topic (e.g. 'Right to privacy fundamental right', 'Bail in PMLA cases')...">
+                        <button class="btn-primary" id="btnSearchPrecedents"><i class="fa-solid fa-scale-balanced"></i> Analyze Case Law</button>
+                    </div>
+                    <div class="legal-output-card" id="precedentsOutputContent">
+                        <p class="placeholder-text">Enter a legal issue or subject matter above to synthesize relevant Supreme Court landmark judgments, established legal tests, and ratio decidendi.</p>
+                    </div>
+                </div>
             </div>
         </div>
     </div>

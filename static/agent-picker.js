@@ -83,49 +83,55 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function renderSpecs(system) {
         if (!system) {
-            specsText.textContent = 'System specifications unavailable';
+            specsText.innerHTML = '<span class="spec-chip offline"><i class="fa-solid fa-triangle-exclamation"></i> Specifications unavailable</span>';
             return;
         }
-        const vram = system.vram_gb != null ? `${system.vram_gb} GB VRAM` : 'GPU memory unknown';
-        const ollama = system.ollama_reachable ? 'Ollama online' : 'Ollama offline';
-        specsText.textContent = `${system.ram_gb} GB RAM · ${vram} · ${ollama}`;
+        const vram = system.vram_gb != null ? `${system.vram_gb} GB VRAM` : 'CPU Only';
+        const statusClass = system.ollama_reachable ? 'online' : 'offline';
+        const statusText = system.ollama_reachable ? 'Ollama Online' : 'Ollama Offline';
+        specsText.innerHTML = `
+            <span class="spec-chip"><i class="fa-solid fa-memory"></i> ${system.ram_gb} GB RAM</span>
+            <span class="spec-chip"><i class="fa-solid fa-microchip"></i> ${vram}</span>
+            <span class="spec-chip status-${statusClass}"><span class="spec-dot ${statusClass}"></span> ${statusText}</span>
+        `;
     }
 
     function renderList() {
         const items = pickerState.agents[pickerState.activeTab] || [];
         if (!items.length) {
-            listPanel.innerHTML = '<p class="agent-empty">No agents in this category.</p>';
+            listPanel.innerHTML = '<p class="agent-empty"><i class="fa-solid fa-box-open"></i><br>No agents available in this category.</p>';
             return;
         }
 
         listPanel.innerHTML = '';
         items.forEach(agent => {
             const card = document.createElement('div');
-            card.className = `agent-card compatibility-${agent.compatibility}`;
-            if (pickerState.current?.chat_agent_id === agent.id) {
-                card.classList.add('selected');
-            }
+            const isSelected = pickerState.current?.chat_agent_id === agent.id;
+            card.className = `agent-card compatibility-${agent.compatibility}${isSelected ? ' selected' : ''}`;
 
             const disabled = agent.compatibility === 'incompatible' || pickerState.isPulling;
-            const actionLabel = agent.installed ? 'Select' : 'Pull & Select';
+            let actionLabel = agent.installed ? 'Select' : '<i class="fa-solid fa-download"></i> Pull & Select';
+            if (isSelected) {
+                actionLabel = '<i class="fa-solid fa-check"></i> Active';
+            }
 
             card.innerHTML = `
                 <div class="agent-card-main">
                     <div class="agent-card-title">
                         <strong>${escapeHTML(agent.display_name)}</strong>
-                        ${agent.default ? '<span class="agent-badge default">Default</span>' : ''}
+                        ${agent.default ? '<span class="agent-badge default"><i class="fa-solid fa-star"></i> Default</span>' : ''}
                         <span class="agent-badge tier">${escapeHTML(agent.tier)}</span>
-                        <span class="agent-badge compat">${escapeHTML(agent.compatibility)}</span>
+                        <span class="agent-badge compat compat-${agent.compatibility}">${escapeHTML(agent.compatibility)}</span>
                     </div>
                     <p class="agent-card-desc">${escapeHTML(agent.description || '')}</p>
                     <div class="agent-card-meta">
-                        <span>${agent.min_ram_gb} GB RAM</span>
-                        <span>${agent.min_vram_gb != null ? agent.min_vram_gb + ' GB VRAM' : 'CPU OK'}</span>
-                        <span>History cap: ${agent.max_history_messages}</span>
-                        <span>${agent.installed ? 'Installed' : 'Not installed'}</span>
+                        <span><i class="fa-solid fa-memory"></i> ${agent.min_ram_gb} GB RAM</span>
+                        <span><i class="fa-solid fa-microchip"></i> ${agent.min_vram_gb != null ? agent.min_vram_gb + ' GB VRAM' : 'CPU OK'}</span>
+                        <span><i class="fa-solid fa-database"></i> Cap: ${agent.max_history_messages}</span>
+                        <span class="meta-status ${agent.installed ? 'installed' : ''}"><i class="fa-solid ${agent.installed ? 'fa-circle-check' : 'fa-circle-arrow-down'}"></i> ${agent.installed ? 'Installed' : 'Not installed'}</span>
                     </div>
                 </div>
-                <button class="btn-primary btn-sm agent-select-btn" ${disabled ? 'disabled' : ''}>
+                <button class="btn-primary btn-sm agent-select-btn${isSelected ? ' btn-active-model' : ''}" ${disabled ? 'disabled' : ''}>
                     ${actionLabel}
                 </button>
             `;
