@@ -1,6 +1,7 @@
 # Legal-Cortex — Private Legal Research & Intelligence Agent
 
 Private, offline legal research, document Q&A, and automated drafting engine designed specifically for legal professionals operating under Indian Jurisprudence. Powered by local Ollama LLMs and vector retrieval — 100% on-device, with zero cloud API dependencies and complete client confidentiality.
+Also one of the main problem ai agents faces biases for facts as there knowledge base is internet surfing and internet is full of media blogs, media twists fact and run their media trials due to which online agents like chat gpt shows biases outcomes
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Python 3.10+](https://img.shields.io/badge/Python-3.10%2B-blue)](https://www.python.org/)
